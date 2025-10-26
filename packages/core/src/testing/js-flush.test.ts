@@ -30,7 +30,7 @@ describe("outputMode: 'javascript'", () => {
     ;(stdin as any).isTTY = true
 
     const { renderer, renderOnce } = await createTestRenderer({
-      outputMode: 'javascript',
+      outputMode: "javascript",
       stdout: stdout as unknown as NodeJS.WriteStream,
       stdin: stdin as unknown as NodeJS.ReadStream,
       useAlternateScreen: false,
@@ -58,7 +58,7 @@ describe("outputMode: 'javascript'", () => {
     ;(stdin as any).isTTY = true
 
     const { renderer, renderOnce } = await createTestRenderer({
-      outputMode: 'javascript',
+      outputMode: "javascript",
       stdout: stdout as unknown as NodeJS.WriteStream,
       stdin: stdin as unknown as NodeJS.ReadStream,
       useAlternateScreen: false,

@@ -1,12 +1,38 @@
 import { describe, expect, test } from "bun:test"
-import { parseColor } from "../lib/RGBA.js"
+import { parseColor, type RGBA } from "../lib/RGBA.js"
 import { createTestRenderer } from "../testing/test-renderer.js"
+import type { CapturedFrame } from "../types.js"
 import {
   parseMermaidStateDiagram,
   renderStateDiagram,
   renderStateDiagramAnsi,
   StateDiagramRenderable,
 } from "./StateDiagram.js"
+
+function cellsWithFg(frame: CapturedFrame, fg: RGBA): Array<{ x: number; y: number; char: string }> {
+  const cells: Array<{ x: number; y: number; char: string }> = []
+
+  for (let y = 0; y < frame.lines.length; y++) {
+    let x = 0
+    for (const span of frame.lines[y]!.spans) {
+      if (!span.fg.equals(fg)) {
+        x += span.width
+        continue
+      }
+
+      for (const char of [...span.text]) {
+        if (char !== " ") cells.push({ x, y, char })
+        x += 1
+      }
+    }
+  }
+
+  return cells
+}
+
+function averageX(cells: readonly { x: number }[]): number {
+  return cells.reduce((total, cell) => total + cell.x, 0) / cells.length
+}
 
 describe("StateDiagram", () => {
   test("detects and parses Mermaid state diagrams", () => {
@@ -55,6 +81,29 @@ stateDiagram-v2
 `)
 
     expect(diagram.states).toContainEqual({ id: "Decision", label: "┼", kind: "choice" })
+  })
+
+  test("parses composite states and notes", () => {
+    const diagram = parseMermaidStateDiagram(`
+stateDiagram-v2
+  state Authenticated {
+    [*] --> Idle
+    Idle --> Editing: open
+  }
+  note right of Editing
+    Draft changes
+  end note
+`)
+
+    expect(diagram.composites).toContainEqual({ id: "Authenticated", label: "Authenticated" })
+    expect(diagram.states).toContainEqual({ id: "Idle", label: "Idle", kind: "state", parentId: "Authenticated" })
+    expect(diagram.states).toContainEqual({
+      id: "Authenticated.__start",
+      label: "●",
+      kind: "start",
+      parentId: "Authenticated",
+    })
+    expect(diagram.notes).toEqual([{ target: "Editing", position: "right", lines: ["Draft changes"] }])
   })
 
   test("renders a horizontal state diagram", () => {
@@ -134,6 +183,37 @@ stateDiagram-v2
     `)
   })
 
+  test("keeps raised note connectors off outgoing transitions", () => {
+    const output = renderStateDiagram(`
+stateDiagram-v2
+  direction LR
+  [*] --> Idle
+  Idle --> Loading: submit
+  Loading --> Success: 200 OK
+  Loading --> Error: timeout
+  note right of Loading : waiting for response
+  Error --> Loading: retry
+  Success --> [*]
+`)
+
+    expect(output).toMatchInlineSnapshot(`
+      "                                                  ╔══════════════════════╗
+                                                    ╔═══╣ waiting for response ║
+                                                    ║   ╚══════════════════════╝
+                                                    ║
+                                                    ║
+                    ╭──────╮   submit    ╭─────────╮   200 OK    ╭─────────╮
+      ●────────────▶│ Idle ├────────────▶│ Loading ├────────────▶│ Success ├────────────▶◎
+                    ╰──────╯             ╰──┬──────╯             ╰─────────╯
+                                            │   ▲
+                                   timeout  │   │
+                                            ▼   │  retry
+                                          ╭─────┴─╮
+                                          │ Error │
+                                          ╰───────╯"
+    `)
+  })
+
   test("renders configurable line arrowheads", () => {
     const output = renderStateDiagram(
       `
@@ -176,6 +256,72 @@ stateDiagram-v2
                      │                      │
                      │        retry         │
                      ╰──────────────────────╯"
+    `)
+  })
+
+  test("renders composite state containers", () => {
+    const output = renderStateDiagram(`
+stateDiagram-v2
+  direction LR
+  state Authenticated {
+    [*] --> Idle
+    Idle --> Editing: open
+    Editing --> [*]: save
+  }
+`)
+
+    expect(output).toMatchInlineSnapshot(`
+      "╭─ Authenticated ──────────────────────────────────────────────╮
+      │                                                              │
+      │               ╭──────╮    open     ╭─────────╮    save       │
+      │ ─────────────▶│ Idle ├────────────▶│ Editing ├────────────── │
+      │               ╰──────╯             ╰─────────╯               │
+      │                                                              │
+      ╰──────────────────────────────────────────────────────────────╯"
+    `)
+  })
+
+  test("routes transitions entering and leaving composite states through scoped markers", () => {
+    const content = `
+stateDiagram-v2
+  direction LR
+  [*] --> Authenticated: login
+  state Authenticated {
+    [*] --> Idle
+    Idle --> Editing: open
+    Editing --> [*]: save
+  }
+  Authenticated --> [*]: logout
+`
+    const diagram = parseMermaidStateDiagram(content)
+    const output = renderStateDiagram(content)
+
+    expect(diagram.transitions).toContainEqual({ from: "__start", to: "Authenticated.__start", label: "login" })
+    expect(diagram.transitions).toContainEqual({ from: "Authenticated.__end", to: "__end", label: "logout" })
+    expect(output).toMatchInlineSnapshot(`
+      "            ╭─ Authenticated ──────────────────╮
+                  │                                  │
+          login   │ ╭──────╮    open     ╭─────────╮ │  save
+      ●────────────▶│ Idle ├────────────▶│ Editing ├────────────▶◎
+                  │ ╰──────╯             ╰─────────╯ │
+                  │                                  │
+                  ╰──────────────────────────────────╯"
+    `)
+  })
+
+  test("renders notes attached to states", () => {
+    const output = renderStateDiagram(`
+stateDiagram-v2
+  direction LR
+  [*] --> Idle
+  Idle --> Loading: submit
+  note right of Loading : waits for response
+`)
+
+    expect(output).toMatchInlineSnapshot(`
+      "              ╭──────╮   submit    ╭─────────╮    ╔════════════════════╗
+      ●────────────▶│ Idle ├────────────▶│ Loading │════╣ waits for response ║
+                    ╰──────╯             ╰─────────╯    ╚════════════════════╝"
     `)
   })
 
@@ -263,6 +409,130 @@ stateDiagram-v2
     }
   })
 
+  test("colors individual states with per-state overrides", async () => {
+    const stateColor = parseColor("#E4EFE8")
+    const activeStateColor = parseColor("#FFD3A0")
+    const outgoingColor = parseColor("#F0C198")
+    const incomingColor = parseColor("#CFE4D7")
+    const testRenderer = await createTestRenderer({ width: 90, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  Idle --> Loading: submit`,
+        activeState: "Loading",
+        stateColor,
+        activeStateColor,
+        stateColors: {
+          Idle: outgoingColor,
+          Loading: incomingColor,
+        },
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      let spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const idleSpan = spans.find((span) => span.text.includes("Idle"))
+      const loadingSpan = spans.find((span) => span.text.includes("Loading"))
+
+      expect(idleSpan?.fg.equals(outgoingColor)).toBe(true)
+      expect(loadingSpan?.fg.equals(incomingColor)).toBe(true)
+
+      diagram.stateColors = undefined
+      await testRenderer.renderOnce()
+      spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+
+      expect(spans.find((span) => span.text.includes("Idle"))?.fg.equals(stateColor)).toBe(true)
+      expect(spans.find((span) => span.text.includes("Loading"))?.fg.equals(activeStateColor)).toBe(true)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("renders state backgrounds inside the state box only", async () => {
+    const activeStateColor = parseColor("#FFD3A0")
+    const activeStateBg = parseColor("#26352F")
+    const testRenderer = await createTestRenderer({ width: 90, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  Idle --> Loading: submit`,
+        activeState: "Loading",
+        activeStateColor,
+        stateBgColors: { Loading: activeStateBg },
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      const spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const borderSpan = spans.find((span) => span.text.includes("╭") || span.text.includes("╮"))
+      const loadingSpan = spans.find((span) => span.text.includes("Loading"))
+
+      expect(borderSpan?.bg.equals(activeStateBg)).toBe(false)
+      expect(loadingSpan?.fg.equals(activeStateColor)).toBe(true)
+      expect(loadingSpan?.bg.equals(activeStateBg)).toBe(true)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("fades active transitions from the active state color", () => {
+    const output = renderStateDiagramAnsi(
+      `
+stateDiagram-v2
+  [*] --> Idle
+`,
+      {
+        activeState: "__start",
+        activeTransition: { from: "__start", to: "Idle" },
+        theme: {
+          activeStateActiveTransitionFade1: "[active-state-fade]",
+          startActiveTransitionFade1: "[start-fade]",
+        },
+      },
+    )
+
+    expect(output).toContain("[active-state-fade]")
+    expect(output).not.toContain("[start-fade]")
+  })
+
+  test("colors note connector, border, and text separately", async () => {
+    const noteConnectorColor = parseColor("#8DA99B")
+    const noteBorderColor = parseColor("#B68B68")
+    const noteTextColor = parseColor("#F1D9BE")
+    const testRenderer = await createTestRenderer({ width: 110, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  direction LR
+  [*] --> Idle
+  Idle --> Loading: submit
+  note right of Loading : waits for response`,
+        noteConnectorColor,
+        noteBorderColor,
+        noteTextColor,
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      const spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const connectorSpan = spans.find((span) => span.text.includes("═") && span.fg?.equals(noteConnectorColor))
+      const borderSpan = spans.find((span) => span.text.includes("╔") && span.fg?.equals(noteBorderColor))
+      const textSpan = spans.find((span) => span.text.includes("waits for response"))
+
+      expect(connectorSpan).toBeTruthy()
+      expect(borderSpan).toBeTruthy()
+      expect(textSpan?.fg.equals(noteTextColor)).toBe(true)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
   test("colors active transition paths through choice junctions", async () => {
     const activeTransitionColor = parseColor("#E6B17E")
     const testRenderer = await createTestRenderer({ width: 120, height: 8 })
@@ -296,5 +566,197 @@ stateDiagram-v2
     } finally {
       testRenderer.renderer.destroy()
     }
+  })
+
+  test("colors composite containers separately", async () => {
+    const compositeColor = parseColor("#6F8A7E")
+    const stateColor = parseColor("#E4EFE8")
+    const testRenderer = await createTestRenderer({ width: 100, height: 10 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  direction LR
+  state Authenticated {
+    [*] --> Idle
+  }`,
+        compositeColor,
+        stateColor,
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      const spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const compositeSpan = spans.find((span) => span.text.includes("Authenticated"))
+      const stateSpan = spans.find((span) => span.text.includes("Idle"))
+
+      expect(compositeSpan?.fg.equals(compositeColor)).toBe(true)
+      expect(stateSpan?.fg.equals(stateColor)).toBe(true)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("pulses active transition cells with tweened colors", async () => {
+    const pulseColor = parseColor("#FFF3D7")
+    const activeTransitionColor = parseColor("#E6B17E")
+    const testRenderer = await createTestRenderer({ width: 80, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: submit`,
+        activeTransition: { from: "Idle", to: "Loading" },
+        activeTransitionColor,
+        pulseColor,
+        pulseFrame: 10,
+        pulseLength: 7,
+        pulseGap: 1000,
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      const spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const pulseSpan = spans.find((span) => span.fg?.equals(pulseColor))
+      const activeSpan = spans.find((span) => span.fg?.equals(activeTransitionColor))
+
+      expect(pulseSpan).toBeTruthy()
+      expect(activeSpan).toBeTruthy()
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("moves active transition pulses in arrow direction", async () => {
+    const pulseColor = parseColor("#FFF3D7")
+    const activeTransitionColor = parseColor("#E6B17E")
+    const testRenderer = await createTestRenderer({ width: 120, height: 14 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  direction LR
+  A --> B
+  B --> C
+  C --> A: reset`,
+        activeTransition: { from: "C", to: "A", label: "reset" },
+        activeTransitionColor,
+        pulseColor,
+        pulseFrame: 20,
+        pulseLength: 3,
+        pulseGap: 1000,
+        minStateGap: 20,
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+      const earlyPulseCells = cellsWithFg(testRenderer.captureSpans(), pulseColor)
+
+      diagram.pulseFrame = 60
+      await testRenderer.renderOnce()
+      const laterPulseCells = cellsWithFg(testRenderer.captureSpans(), pulseColor)
+
+      expect(earlyPulseCells.length).toBeGreaterThan(0)
+      expect(laterPulseCells.length).toBeGreaterThan(0)
+      expect(averageX(laterPulseCells)).toBeLessThan(averageX(earlyPulseCells))
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("moves one-shot active transition pulses by progress", async () => {
+    const pulseColor = parseColor("#FFF3D7")
+    const activeTransitionColor = parseColor("#E6B17E")
+    const testRenderer = await createTestRenderer({ width: 120, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  direction LR
+  A --> B: next`,
+        activeTransition: { from: "A", to: "B" },
+        activeTransitionColor,
+        pulseColor,
+        pulseProgress: 0.2,
+        pulseLength: 7,
+        minStateGap: 36,
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+      const earlyPulseCells = cellsWithFg(testRenderer.captureSpans(), pulseColor)
+
+      diagram.pulseProgress = 0.8
+      await testRenderer.renderOnce()
+      const laterPulseCells = cellsWithFg(testRenderer.captureSpans(), pulseColor)
+
+      expect(earlyPulseCells.length).toBeGreaterThan(0)
+      expect(laterPulseCells.length).toBeGreaterThan(0)
+      expect(averageX(laterPulseCells)).toBeGreaterThan(averageX(earlyPulseCells))
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
+  test("renders fade styles around active transition pulses", () => {
+    const output = renderStateDiagramAnsi(
+      `
+stateDiagram-v2
+  direction LR
+  A --> B: next
+`,
+      {
+        activeTransition: { from: "A", to: "B" },
+        pulseFrame: 10,
+        pulseLength: 7,
+        pulseGap: 1000,
+        theme: {
+          activeTransitionPulse: "[pulse]",
+          activeTransitionPulseFade1: "[pulse-fade-1]",
+          activeTransitionPulseFade2: "[pulse-fade-2]",
+        },
+      },
+    )
+
+    expect(output).toContain("[pulse]")
+    expect(output).toContain("[pulse-fade-")
+  })
+
+  test("masks active transition reveal and fade along the path", () => {
+    const content = `
+stateDiagram-v2
+  direction LR
+  A --> B
+`
+    const theme = {
+      activeTransition: "[active]",
+      transition: "[transition]",
+    }
+
+    expect(
+      renderStateDiagramAnsi(content, {
+        activeTransition: { from: "A", to: "B" },
+        activeTransitionProgress: 0,
+        theme,
+      }),
+    ).not.toContain("[active]")
+    expect(
+      renderStateDiagramAnsi(content, {
+        activeTransition: { from: "A", to: "B" },
+        activeTransitionProgress: 1,
+        theme,
+      }),
+    ).toContain("[active]")
+    expect(
+      renderStateDiagramAnsi(content, {
+        activeTransition: { from: "A", to: "B" },
+        activeTransitionMode: "fade",
+        activeTransitionProgress: 1,
+        theme,
+      }),
+    ).not.toContain("[active]")
   })
 })

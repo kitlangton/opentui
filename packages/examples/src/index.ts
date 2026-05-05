@@ -64,6 +64,7 @@ import * as diffDemo from "./diff-demo.js"
 import * as keypressDebugDemo from "./keypress-debug-demo.js"
 import * as extmarksDemo from "./extmarks-demo.js"
 import * as markdownDemo from "./markdown-demo.js"
+import * as flowchartDemo from "./flowchart-demo.js"
 import * as sequenceDiagramDemo from "./sequence-diagram-demo.js"
 import * as stateDiagramDemo from "./state-diagram-demo.js"
 import * as linkDemo from "./link-demo.js"
@@ -236,6 +237,12 @@ const examples: Example[] = [
     description: "Markdown rendering with table alignment, syntax highlighting, and theme switching",
     run: markdownDemo.run,
     destroy: markdownDemo.destroy,
+  },
+  {
+    name: "Flowchart Demo",
+    description: "Mermaid flowchart and graph diagrams rendered as terminal-native nodes and arrows",
+    run: flowchartDemo.run,
+    destroy: flowchartDemo.destroy,
   },
   {
     name: "Sequence Diagram Demo",

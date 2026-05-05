@@ -2,6 +2,7 @@ import { test, expect, beforeAll, beforeEach, afterEach, afterAll } from "bun:te
 import { Lexer } from "marked"
 import { MarkdownRenderable, type MarkdownOptions } from "../Markdown.js"
 import { CodeRenderable } from "../Code.js"
+import { FlowchartDiagramRenderable } from "../FlowchartDiagram.js"
 import { SequenceDiagramRenderable } from "../SequenceDiagram.js"
 import { StateDiagramRenderable } from "../StateDiagram.js"
 import { TextRenderable } from "../Text.js"
@@ -175,6 +176,40 @@ test("updating mermaid sequenceDiagram fences reuses the diagram renderable", as
 
   expect(md._blockStates[0]?.renderable).toBe(diagram)
   expect(captureFrame()).toContain("second")
+})
+
+test("mermaid flowchart code fences render as flowchart diagrams", async () => {
+  const md = createMarkdownRenderable({
+    id: "markdown-flowchart-diagram",
+    content: "```mermaid\nflowchart LR\n  Client([Client]) --> API[API]\n  API --> Store[(Store)]\n```",
+    syntaxStyle,
+  })
+
+  renderer.root.add(md)
+  await renderMarkdownRenderable(md)
+
+  const diagram = md._blockStates[0]?.renderable as FlowchartDiagramRenderable
+  expect(diagram).toBeInstanceOf(FlowchartDiagramRenderable)
+
+  const rendered = captureFrame()
+  expect(rendered).toContain("Client")
+  expect(rendered).toContain("API")
+  expect(rendered).toContain("Store")
+  expect(rendered).toContain("▶")
+})
+
+test("mermaid graph code fences render as flowchart diagrams", async () => {
+  const md = createMarkdownRenderable({
+    id: "markdown-graph-diagram",
+    content: "```mermaid\ngraph TD\n  Start([Start]) --> Done([Done])\n```",
+    syntaxStyle,
+  })
+
+  renderer.root.add(md)
+  await renderMarkdownRenderable(md)
+
+  expect(md._blockStates[0]?.renderable).toBeInstanceOf(FlowchartDiagramRenderable)
+  expect(captureFrame()).toContain("Done")
 })
 
 test("updating mermaid fences replaces the renderable when the diagram kind changes", async () => {

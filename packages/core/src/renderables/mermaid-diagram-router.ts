@@ -1,11 +1,12 @@
 import type { Renderable } from "../Renderable.js"
 import type { RGBA } from "../lib/RGBA.js"
 import type { RenderContext } from "../types.js"
+import { FlowchartDiagramRenderable, isMermaidFlowchartDiagram } from "./FlowchartDiagram.js"
 import { isMermaidSequenceDiagram, SequenceDiagramRenderable } from "./SequenceDiagram.js"
 import { isMermaidStateDiagram, StateDiagramRenderable } from "./StateDiagram.js"
 
-export type MermaidDiagramKind = "sequence" | "state"
-export type MermaidDiagramRenderable = SequenceDiagramRenderable | StateDiagramRenderable
+export type MermaidDiagramKind = "flowchart" | "sequence" | "state"
+export type MermaidDiagramRenderable = FlowchartDiagramRenderable | SequenceDiagramRenderable | StateDiagramRenderable
 
 export interface MermaidDiagramRenderableOptions {
   id: string
@@ -34,6 +35,22 @@ function applyDiagramRenderable(
 }
 
 export const MERMAID_DIAGRAM_ADAPTERS = [
+  {
+    kind: "flowchart",
+    matches: isMermaidFlowchartDiagram,
+    isRenderable: (renderable: Renderable): renderable is FlowchartDiagramRenderable =>
+      renderable instanceof FlowchartDiagramRenderable,
+    create: (ctx: RenderContext, options: MermaidDiagramRenderableOptions): FlowchartDiagramRenderable =>
+      new FlowchartDiagramRenderable(ctx, {
+        id: options.id,
+        content: options.content,
+        fg: options.fg,
+        bg: options.bg,
+        width: "100%",
+        marginBottom: options.marginBottom ?? 0,
+      }),
+    apply: applyDiagramRenderable,
+  },
   {
     kind: "sequence",
     matches: isMermaidSequenceDiagram,

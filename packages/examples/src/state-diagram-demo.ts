@@ -241,7 +241,7 @@ const EDGE_FADE_MS = 260
 const EDGE_REVEAL_MS = 620
 const FOLLOW_PULSE_MS = 620
 const STATE_COLOR_FADE_MS = 840
-const ANIMATION_INTERVAL_MS = 45
+const ANIMATION_INTERVAL_MS = 33
 const STATE_GLOW_LEVELS = [0, 1, 2, 3, 4, 5] as const
 
 function exampleSize(example: StateDiagramExample): { width: number; height: number } {
@@ -360,11 +360,18 @@ function stateNeutralColor(colors: ParsedThemeColors, stateId: string | undefine
 }
 
 function animatedStateColors(theme: StateDiagramTheme, now = animationNow()): Record<string, RGBA> | undefined {
+  const colors = parsedThemeColors(theme)
+  if (pendingFollow && activeState) {
+    const progress = clamp01((now - pendingFollow.startedAt) / EDGE_FADE_MS)
+    return {
+      [activeState]: mixColor(colors.activeState, stateNeutralColor(colors, activeState), easeOutCubic(progress)),
+    }
+  }
+
   if (!previousActiveState || !activeState) return undefined
   const progress = clamp01((now - stateTransitionStartedAt) / STATE_COLOR_FADE_MS)
   if (progress >= 1) return undefined
 
-  const colors = parsedThemeColors(theme)
   const incomingNeutral = stateNeutralColor(colors, activeState)
   const outgoingNeutral = stateNeutralColor(colors, previousActiveState)
   const incomingActivation = easeOutCubic(progress / 0.18)
@@ -386,6 +393,7 @@ function animatedStateColors(theme: StateDiagramTheme, now = animationNow()): Re
 }
 
 function activeStateBackgroundColors(theme: StateDiagramTheme, now = animationNow()): Record<string, RGBA> | undefined {
+  if (pendingFollow) return undefined
   if (!previousActiveState || !activeState) return undefined
 
   const colors = parsedThemeColors(theme)

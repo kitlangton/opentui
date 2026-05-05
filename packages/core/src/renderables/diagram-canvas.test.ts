@@ -1,0 +1,63 @@
+import { describe, expect, test } from "bun:test"
+import { DiagramCanvas, type DiagramCanvasCell } from "./diagram-canvas.js"
+
+describe("DiagramCanvas", () => {
+  test("writes cells and text while clipping out-of-bounds positions", () => {
+    const canvas = new DiagramCanvas<"label">(5, 2)
+
+    canvas.setCell(0, 0, "A", "label")
+    canvas.setCell(9, 0, "X", "label")
+    canvas.setText(2, 1, "hey", "label")
+
+    expect(canvas.toString()).toBe("A\n  hey")
+  })
+
+  test("uses measured character widths for text placement", () => {
+    const canvas = new DiagramCanvas<"label">(5, 1)
+
+    canvas.setText(0, 0, "a界b", "label")
+
+    expect(canvas.toString()).toBe("a界 b")
+  })
+
+  test("merges cells through the adapter-provided merge function", () => {
+    type Style = "line"
+    const canvas = new DiagramCanvas<Style>(3, 1, {
+      mergeCell: (existing, incoming): DiagramCanvasCell<Style> => ({
+        ...incoming,
+        char: existing.char === "─" && incoming.char === "│" ? "┼" : incoming.char,
+      }),
+    })
+
+    canvas.setCell(1, 0, "─", "line")
+    canvas.setCell(1, 0, "│", "line")
+
+    expect(canvas.toString()).toBe(" ┼")
+  })
+
+  test("iterates style and metadata runs", () => {
+    interface Metadata {
+      stateId?: string
+    }
+    const canvas = new DiagramCanvas<"state", Metadata>(4, 1)
+    const runs: string[] = []
+
+    canvas.setText(0, 0, "AB", "state", { stateId: "A" })
+    canvas.setText(2, 0, "CD", "state", { stateId: "B" })
+    canvas.forEachRun(
+      (run) => runs.push(`${run.text}:${run.style}:${run.cell.stateId}`),
+      () => runs.push("newline"),
+      { key: (cell) => [cell.style, cell.stateId] },
+    )
+
+    expect(runs).toEqual(["AB:state:A", "CD:state:B"])
+  })
+
+  test("can trim bottom whitespace for renderers with dynamic height", () => {
+    const canvas = new DiagramCanvas<"label">(3, 3)
+    canvas.setText(0, 0, "top", "label")
+
+    expect(canvas.toString()).toBe("top\n\n")
+    expect(canvas.toString({ trimBottom: true })).toBe("top")
+  })
+})

@@ -5,6 +5,21 @@ import { isCssColorName, parseColor, RGBA, type ColorInput } from "../lib/RGBA.j
 import { stringWidth } from "../platform/runtime.js"
 import type { TextChunk } from "../text-buffer.js"
 import { type RenderContext } from "../types.js"
+import { DiagramCanvas } from "./diagram-canvas.js"
+import { diagramPulseLevel, visitDiagramPulsePath } from "./diagram-pulse.js"
+import {
+  ansiBg,
+  ansiFg,
+  blendColor,
+  brightenColor,
+  createAnsiPeakAndRampTheme,
+  createAnsiRampTheme,
+  createColorPeakAndRamp,
+  DIAGRAM_FADE_STEPS,
+  numberedStyleKeys,
+  type DiagramFadeStep,
+  type DiagramRgb,
+} from "./diagram-style.js"
 import { TextBufferRenderable, type TextBufferOptions } from "./TextBufferRenderable.js"
 
 export interface SequenceParticipant {
@@ -90,7 +105,7 @@ export interface SequenceDiagramOptions extends TextBufferOptions {
 }
 
 type MessageStyle = "request" | "response"
-type FadeStep = 1 | 2 | 3 | 4 | 5
+type FadeStep = DiagramFadeStep
 type FadeStyle = `${MessageStyle}Fade${FadeStep}`
 type MessagePulseStyle = `${MessageStyle}Pulse`
 type PulseFadeStyle = `${MessageStyle}PulseFade${FadeStep}`
@@ -106,16 +121,8 @@ type AnsiSequenceCellStyle =
   | "fragmentLabel"
   | "note"
 type SequenceCellStyle = AnsiSequenceCellStyle | "noteBadge"
-type Rgb = readonly [number, number, number]
 
-interface SequenceCell {
-  char: string
-  style?: SequenceCellStyle
-}
-
-interface SequenceGrid {
-  rows: SequenceCell[][]
-}
+type SequenceGrid = DiagramCanvas<SequenceCellStyle>
 
 interface SequenceLayoutOptions {
   minParticipantGap: number
@@ -139,7 +146,7 @@ const GROUP_HORIZONTAL_PADDING = 2
 const FRAGMENT_HORIZONTAL_OVERHANG = 3
 const SEQUENCE_BORDER = BorderChars.rounded
 const DEFAULT_FRAGMENT_BORDER_STYLE = "rounded" satisfies BorderStyle
-const FADE_STEPS = [1, 2, 3, 4, 5] as const satisfies readonly FadeStep[]
+const FADE_STEPS = DIAGRAM_FADE_STEPS
 const PULSE_STYLES = {
   request: [
     "requestPulseFade1",
@@ -170,7 +177,7 @@ const DEFAULT_THEME_RGB = {
   fragmentLabelBg: [28, 43, 36],
   noteFg: [215, 229, 221],
   noteBg: [36, 56, 47],
-} as const
+} as const satisfies Record<string, DiagramRgb>
 const DEFAULT_ANSI_THEME: Required<Record<AnsiSequenceCellStyle, string>> = {
   participant: ansiFg(DEFAULT_THEME_RGB.participant),
   lifeline: ansiFg(DEFAULT_THEME_RGB.lifeline),
@@ -194,43 +201,16 @@ const ALT_RE = /^alt\s+(.+)$/i
 const ELSE_RE = /^else(?:\s+(.+))?$/i
 const LOOP_RE = /^loop\s+(.+)$/i
 const AUTONUMBER_RE = /^autonumber(?:\s+(\d+)(?:\s+(\d+))?)?$/i
-function mixChannel(left: number, right: number, amount: number): number {
-  return Math.round(left + (right - left) * amount)
-}
-
-function mixRgb(left: Rgb, right: Rgb, amount: number): Rgb {
-  return [
-    mixChannel(left[0], right[0], amount),
-    mixChannel(left[1], right[1], amount),
-    mixChannel(left[2], right[2], amount),
-  ]
-}
-
-function ansiFg(rgb: Rgb): string {
-  return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m`
-}
-
-function ansiBg(rgb: Rgb): string {
-  return `\x1b[48;2;${rgb[0]};${rgb[1]};${rgb[2]}m`
-}
-
-function createAnsiFadeTheme(style: MessageStyle, from: Rgb, to: Rgb): Record<FadeStyle, string> {
-  return Object.fromEntries(
-    FADE_STEPS.map((step) => [`${style}Fade${step}`, ansiFg(mixRgb(from, to, step / (FADE_STEPS.length + 1)))]),
-  ) as Record<FadeStyle, string>
+function createAnsiFadeTheme(style: MessageStyle, from: DiagramRgb, to: DiagramRgb): Record<FadeStyle, string> {
+  return createAnsiRampTheme(numberedStyleKeys(`${style}Fade`, FADE_STEPS), from, to) as Record<FadeStyle, string>
 }
 
 function createAnsiPulseTheme(
   style: MessageStyle,
-  from: Rgb,
-  to: Rgb,
+  from: DiagramRgb,
+  to: DiagramRgb,
 ): Record<MessagePulseStyle | PulseFadeStyle, string> {
-  return {
-    [`${style}Pulse`]: ansiFg(to),
-    ...Object.fromEntries(
-      FADE_STEPS.map((step) => [`${style}PulseFade${step}`, ansiFg(mixRgb(from, to, step / (FADE_STEPS.length + 1)))]),
-    ),
-  } as Record<MessagePulseStyle | PulseFadeStyle, string>
+  return createAnsiPeakAndRampTheme(`${style}Pulse`, numberedStyleKeys(`${style}PulseFade`, FADE_STEPS), from, to)
 }
 
 function visualLength(value: string): number {
@@ -497,41 +477,19 @@ export function parseMermaidSequenceDiagram(content: string): SequenceDiagram {
 }
 
 function createGrid(width: number, height: number): SequenceGrid {
-  return {
-    rows: Array.from({ length: height }, () => Array.from({ length: width }, () => ({ char: " " }))),
-  }
+  return new DiagramCanvas(width, height)
 }
 
 function setCell(grid: SequenceGrid, x: number, y: number, char: string, style?: SequenceCellStyle): void {
-  if (!grid.rows[y]) return
-
-  const cell = grid.rows[y]?.[x]
-  if (!cell) return
-
-  cell.char = char
-  cell.style = style
+  grid.setCell(x, y, char, style)
 }
 
 function setText(grid: SequenceGrid, x: number, y: number, text: string, style?: SequenceCellStyle): void {
-  if (!grid.rows[y]) return
-
-  let currentX = Math.max(0, x)
-  for (const char of text) {
-    if (currentX >= grid.rows[y]!.length) break
-    setCell(grid, currentX, y, char, style)
-    currentX += 1
-  }
+  grid.setText(Math.max(0, x), y, text, style)
 }
 
 function renderGridText(grid: SequenceGrid): string {
-  return grid.rows
-    .map((row) =>
-      row
-        .map((cell) => cell.char)
-        .join("")
-        .trimEnd(),
-    )
-    .join("\n")
+  return grid.toString()
 }
 
 function styleColor(style: SequenceCellStyle | undefined, colors: SequenceStyleColors): RGBA | undefined {
@@ -545,25 +503,6 @@ function styleBackgroundColor(style: SequenceCellStyle | undefined, colors: Sequ
   return style === "noteBadge" ? colors.noteBg : undefined
 }
 
-function blendColor(from: RGBA | undefined, to: RGBA | undefined, amount: number): RGBA | undefined {
-  if (!from && !to) return undefined
-  if (!from) return to
-  if (!to) return from
-
-  const [fromR, fromG, fromB, fromA] = from.toInts()
-  const [toR, toG, toB, toA] = to.toInts()
-  const mix = (left: number, right: number) => left + (right - left) * amount
-
-  return RGBA.fromInts(mix(fromR, toR), mix(fromG, toG), mix(fromB, toB), mix(fromA, toA))
-}
-
-function brightenColor(color: RGBA | undefined, amount: number = 0.35): RGBA | undefined {
-  if (!color) return undefined
-
-  const [r, g, b, a] = color.toInts()
-  return RGBA.fromInts(mixChannel(r, 255, amount), mixChannel(g, 255, amount), mixChannel(b, 255, amount), a)
-}
-
 function colorsEqual(left?: RGBA, right?: RGBA): boolean {
   if (!left || !right) return left === right
   return left.equals(right)
@@ -574,12 +513,7 @@ function createPulseStyleColors(
   from: RGBA | undefined,
   to: RGBA | undefined,
 ): Partial<Record<MessagePulseStyle | PulseFadeStyle, RGBA | undefined>> {
-  return {
-    [`${style}Pulse`]: to,
-    ...Object.fromEntries(
-      FADE_STEPS.map((step) => [`${style}PulseFade${step}`, blendColor(from, to, step / (FADE_STEPS.length + 1))]),
-    ),
-  } as Partial<Record<MessagePulseStyle | PulseFadeStyle, RGBA | undefined>>
+  return createColorPeakAndRamp(`${style}Pulse`, numberedStyleKeys(`${style}PulseFade`, FADE_STEPS), from, to)
 }
 
 function resolveSequenceStyleColors(colors: SequenceStyleColors): SequenceStyleColors {
@@ -629,10 +563,12 @@ function pulseCellStyle(
   edgeDistance: number,
   char: string,
 ): { style: SequenceCellStyle; level: number } {
-  const distanceLevel = distance === 0 ? 6 : Math.max(1, Math.min(5, 6 - Math.ceil((distance / radius) * 5)))
-  const edgeLevel = Math.max(1, Math.min(6, Math.ceil(((edgeDistance + 1) / (radius + 1)) * 6)))
-  const glyphLevel = char === SEQUENCE_BORDER.horizontal || char === SEQUENCE_BORDER.vertical ? 6 : 4
-  const level = Math.min(distanceLevel, edgeLevel, glyphLevel)
+  const level = diagramPulseLevel(
+    distance,
+    radius,
+    edgeDistance,
+    char === SEQUENCE_BORDER.horizontal || char === SEQUENCE_BORDER.vertical,
+  )
 
   return { style: PULSE_STYLES[messageStyle][level - 1]!, level }
 }
@@ -673,22 +609,15 @@ function drawPulseOnPath(
   pulseLength: number,
   pulseGap: number,
 ): void {
-  if (pulseFrame === undefined || pathLength === 0) return
-
-  const before = Math.floor((pulseLength - 1) / 2)
-  const after = pulseLength - before - 1
-  const radius = Math.max(1, before, after)
-  const phase = (((pulseFrame % pulseGap) + pulseGap) % pulseGap) - pulseLength
-
-  for (let centerIndex = phase; centerIndex < pathLength + radius; centerIndex += pulseGap) {
-    for (let distance = -before; distance <= after; distance++) {
-      const pathIndex = centerIndex + distance
-      if (pathIndex < 0 || pathIndex >= pathLength) continue
-      const [x, y] = pointAt(pathIndex)
-      const edgeDistance = Math.min(pathIndex, pathLength - 1 - pathIndex)
-      setPulseCell(grid, x, y, messageStyle, Math.abs(distance), radius, edgeDistance)
-    }
-  }
+  visitDiagramPulsePath({
+    pathLength,
+    pointAt,
+    pulseFrame,
+    pulseLength,
+    pulseGap,
+    visit: ([x, y], distance, radius, edgeDistance) =>
+      setPulseCell(grid, x, y, messageStyle, distance, radius, edgeDistance),
+  })
 }
 
 function drawStraightPulse(
@@ -760,33 +689,7 @@ function forEachGridRun(
   onRun: (text: string, style: SequenceCellStyle | undefined) => void,
   onLineEnd: () => void,
 ): void {
-  for (let rowIndex = 0; rowIndex < grid.rows.length; rowIndex++) {
-    const row = grid.rows[rowIndex]!
-    let rowEnd = row.length
-    while (rowEnd > 0 && row[rowEnd - 1]?.char === " ") {
-      rowEnd -= 1
-    }
-
-    let currentStyle: SequenceCellStyle | undefined
-    let currentText = ""
-    const flush = () => {
-      if (!currentText) return
-      onRun(currentText, currentStyle)
-      currentText = ""
-    }
-
-    for (let x = 0; x < rowEnd; x++) {
-      const cell = row[x]!
-      if (cell.style !== currentStyle) {
-        flush()
-        currentStyle = cell.style
-      }
-      currentText += cell.char
-    }
-
-    flush()
-    if (rowIndex < grid.rows.length - 1) onLineEnd()
-  }
+  grid.forEachRun((run) => onRun(run.text, run.style), onLineEnd)
 }
 
 function renderGridAnsi(grid: SequenceGrid, theme: SequenceDiagramAnsiTheme = {}): string {

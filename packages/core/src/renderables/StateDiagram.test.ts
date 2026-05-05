@@ -409,6 +409,35 @@ stateDiagram-v2
     }
   })
 
+  test("derives transition boundary fades from per-state colors", async () => {
+    const sourceColor = parseColor("#000000")
+    const activeTransitionColor = parseColor("#060000")
+    const expectedBoundaryColor = parseColor("#010000")
+    const testRenderer = await createTestRenderer({ width: 80, height: 8 })
+
+    try {
+      const diagram = new StateDiagramRenderable(testRenderer.renderer, {
+        content: `stateDiagram-v2
+  Idle --> Loading: submit`,
+        activeState: "Idle",
+        activeStateColor: "#FF0000",
+        activeTransition: { from: "Idle", to: "Loading" },
+        activeTransitionColor,
+        stateColors: { Idle: sourceColor },
+      })
+
+      testRenderer.renderer.root.add(diagram)
+      await testRenderer.renderOnce()
+
+      const spans = testRenderer.captureSpans().lines.flatMap((line) => line.spans)
+      const departureSpan = spans.find((span) => span.text.includes("├"))
+
+      expect(departureSpan?.fg.equals(expectedBoundaryColor)).toBe(true)
+    } finally {
+      testRenderer.renderer.destroy()
+    }
+  })
+
   test("colors individual states with per-state overrides", async () => {
     const stateColor = parseColor("#E4EFE8")
     const activeStateColor = parseColor("#FFD3A0")
@@ -733,6 +762,8 @@ stateDiagram-v2
 `
     const theme = {
       activeTransition: "[active]",
+      activeTransitionPulse: "[front]",
+      activeTransitionPulseFade1: "[front-fade]",
       transition: "[transition]",
     }
 
@@ -750,6 +781,13 @@ stateDiagram-v2
         theme,
       }),
     ).toContain("[active]")
+    expect(
+      renderStateDiagramAnsi(content, {
+        activeTransition: { from: "A", to: "B" },
+        activeTransitionProgress: 0.5,
+        theme,
+      }),
+    ).toContain("[front]")
     expect(
       renderStateDiagramAnsi(content, {
         activeTransition: { from: "A", to: "B" },

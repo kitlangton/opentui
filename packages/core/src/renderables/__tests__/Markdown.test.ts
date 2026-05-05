@@ -177,6 +177,27 @@ test("updating mermaid sequenceDiagram fences reuses the diagram renderable", as
   expect(captureFrame()).toContain("second")
 })
 
+test("updating mermaid fences replaces the renderable when the diagram kind changes", async () => {
+  const md = createMarkdownRenderable({
+    id: "markdown-mermaid-diagram-kind-update",
+    content: "```mermaid\nsequenceDiagram\n  A->>B: first\n```",
+    syntaxStyle,
+  })
+
+  renderer.root.add(md)
+  await renderMarkdownRenderable(md)
+
+  const sequenceDiagram = md._blockStates[0]?.renderable as SequenceDiagramRenderable
+  expect(sequenceDiagram).toBeInstanceOf(SequenceDiagramRenderable)
+
+  md.content = "```mermaid\nstateDiagram-v2\n  [*] --> Idle\n```"
+  await renderMarkdownRenderable(md)
+
+  expect(md._blockStates[0]?.renderable).toBeInstanceOf(StateDiagramRenderable)
+  expect(md._blockStates[0]?.renderable).not.toBe(sequenceDiagram)
+  expect(captureFrame()).toContain("Idle")
+})
+
 test("mermaid stateDiagram-v2 code fences render as state diagrams", async () => {
   const md = createMarkdownRenderable({
     id: "markdown-state-diagram",

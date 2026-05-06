@@ -55,9 +55,19 @@ describe("DiagramCanvas", () => {
 
   test("can trim bottom whitespace for renderers with dynamic height", () => {
     const canvas = new DiagramCanvas<"label">(3, 3)
+    const runs: string[] = []
     canvas.setText(0, 0, "top", "label")
 
     expect(canvas.toString()).toBe("top\n\n")
     expect(canvas.toString({ trimBottom: true })).toBe("top")
+    expect(canvas.getTextSize()).toEqual({ width: 3, height: 3 })
+    expect(canvas.getTextSize({ trimBottom: true })).toEqual({ width: 3, height: 1 })
+
+    canvas.forEachRun(
+      (run) => runs.push(run.text),
+      () => runs.push("newline"),
+      { trimBottom: true },
+    )
+    expect(runs).toEqual(["top"])
   })
 })

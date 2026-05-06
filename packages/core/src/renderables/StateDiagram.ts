@@ -6,10 +6,13 @@ import { stringWidth } from "../platform/runtime.js"
 import type { TextChunk } from "../text-buffer.js"
 import { type RenderContext } from "../types.js"
 import { DiagramCanvas, type DiagramCanvasCell } from "./diagram-canvas.js"
+import { diagramArrowHead, diagramLineGlyph, drawDiagramFrame, mergeDiagramLineGlyph } from "./diagram-drawing.js"
+import type { DiagramDirection } from "./diagram-geometry.js"
 import { diagramPulseLevel, visitDiagramPulsePath } from "./diagram-pulse.js"
 import {
   ansiFg,
   blendColor,
+  colorsEqual,
   createAnsiPeakAndRampTheme,
   createAnsiRampTheme,
   DIAGRAM_FADE_STEPS,
@@ -740,32 +743,12 @@ function makeGrid(width: number, height: number): StateGrid {
       const shouldMerge = isTransitionDrawingStyle(existing.style) && isTransitionDrawingStyle(incoming.style)
       return {
         ...incoming,
-        char: shouldMerge ? (mergeLineGlyph(existing.char, incoming.char) ?? incoming.char) : incoming.char,
+        char: shouldMerge
+          ? (mergeDiagramLineGlyph(existing.char, incoming.char, "rounded") ?? incoming.char)
+          : incoming.char,
       }
     },
   })
-}
-
-function mergeLineGlyph(left: string, right: string): string | undefined {
-  const connections = (char: string): JunctionDirection[] | undefined => {
-    if (char === "─") return ["left", "right"]
-    if (char === "│") return ["up", "down"]
-    if (char === "╭") return ["right", "down"]
-    if (char === "╮") return ["left", "down"]
-    if (char === "╰") return ["right", "up"]
-    if (char === "╯") return ["left", "up"]
-    if (char === "┬") return ["left", "right", "down"]
-    if (char === "┴") return ["left", "right", "up"]
-    if (char === "├") return ["up", "down", "right"]
-    if (char === "┤") return ["up", "down", "left"]
-    if (char === "┼") return ["left", "right", "up", "down"]
-    return undefined
-  }
-
-  const leftConnections = connections(left)
-  const rightConnections = connections(right)
-  if (!leftConnections || !rightConnections) return undefined
-  return junctionGlyph(new Set([...leftConnections, ...rightConnections]))
 }
 
 function isTransitionDrawingStyle(style: StateCellStyle | undefined): boolean {
@@ -954,18 +937,7 @@ function drawStateFrame(
     setCell(grid, x, y, char, style, stateColorKeyForCell(bounds, stateId, x, y, true))
   }
 
-  setBorderCell(bounds.left, bounds.top, chars.topLeft)
-  setBorderCell(bounds.left + bounds.width - 1, bounds.top, chars.topRight)
-  setBorderCell(bounds.left, bounds.top + bounds.height - 1, chars.bottomLeft)
-  setBorderCell(bounds.left + bounds.width - 1, bounds.top + bounds.height - 1, chars.bottomRight)
-  for (let x = bounds.left + 1; x < bounds.left + bounds.width - 1; x++) {
-    setBorderCell(x, bounds.top, chars.horizontal)
-    setBorderCell(x, bounds.top + bounds.height - 1, chars.horizontal)
-  }
-  for (let y = bounds.top + 1; y < bounds.top + bounds.height - 1; y++) {
-    setBorderCell(bounds.left, y, chars.vertical)
-    setBorderCell(bounds.left + bounds.width - 1, y, chars.vertical)
-  }
+  drawDiagramFrame(bounds, chars, setBorderCell)
 }
 
 function setStateText(
@@ -993,18 +965,7 @@ function drawContainerFrame(
   style: StateCellStyle,
   stateId?: string,
 ): void {
-  setCell(grid, bounds.left, bounds.top, chars.topLeft, style, stateId)
-  setCell(grid, bounds.left + bounds.width - 1, bounds.top, chars.topRight, style, stateId)
-  setCell(grid, bounds.left, bounds.top + bounds.height - 1, chars.bottomLeft, style, stateId)
-  setCell(grid, bounds.left + bounds.width - 1, bounds.top + bounds.height - 1, chars.bottomRight, style, stateId)
-  for (let x = bounds.left + 1; x < bounds.left + bounds.width - 1; x++) {
-    setCell(grid, x, bounds.top, chars.horizontal, style, stateId)
-    setCell(grid, x, bounds.top + bounds.height - 1, chars.horizontal, style, stateId)
-  }
-  for (let y = bounds.top + 1; y < bounds.top + bounds.height - 1; y++) {
-    setCell(grid, bounds.left, y, chars.vertical, style, stateId)
-    setCell(grid, bounds.left + bounds.width - 1, y, chars.vertical, style, stateId)
-  }
+  drawDiagramFrame(bounds, chars, (x, y, char) => setCell(grid, x, y, char, style, stateId))
   if (label) setText(grid, bounds.left + 2, bounds.top, ` ${label} `, style, stateId)
 }
 
@@ -1161,20 +1122,6 @@ function drawTopDeparture(grid: StateGrid, bounds: BoxBounds, x: number, context
   )
 }
 
-function arrowHeadChar(style: StateDiagramArrowHeadStyle, direction: "right" | "left" | "up" | "down"): string {
-  if (style === "line") {
-    if (direction === "right") return "→"
-    if (direction === "left") return "←"
-    if (direction === "up") return "↑"
-    return "↓"
-  }
-
-  if (direction === "right") return "▶"
-  if (direction === "left") return "◀"
-  if (direction === "up") return "▲"
-  return "▼"
-}
-
 function drawHorizontal(
   grid: StateGrid,
   from: BoxBounds,
@@ -1221,7 +1168,7 @@ function drawHorizontal(
   const startDistance = from.width <= 1 || from.height <= 1 ? 0 : 1
   drawHorizontalRamp(grid, startX, targetIsChoice ? endX : endX - 1, y, 1, startDistance, context)
   if (targetIsChoice) addPathPoint(context.path, to.left, y)
-  else setPathCell(grid, context.path, endX, y, arrowHeadChar(arrowHeadStyle, "right"), lineStyle)
+  else setPathCell(grid, context.path, endX, y, diagramArrowHead("right", arrowHeadStyle), lineStyle)
   if (label) {
     const text = splitLines(label)[0] ?? ""
     const labelX = Math.min(startX, endX) + Math.max(1, Math.floor(Math.abs(endX - startX - visualLength(text)) / 2))
@@ -1249,7 +1196,7 @@ function drawSelfTransition(
   setPathCell(grid, context.path, sourceX, railY, "╰", lineStyle)
   for (let x = sourceX + 1; x < targetX; x++) setPathCell(grid, context.path, x, railY, "─", lineStyle)
   setPathCell(grid, context.path, targetX, railY, "╯", lineStyle)
-  setPathCell(grid, context.path, targetX, bottomY + 1, arrowHeadChar(arrowHeadStyle, "up"), lineStyle)
+  setPathCell(grid, context.path, targetX, bottomY + 1, diagramArrowHead("up", arrowHeadStyle), lineStyle)
 
   if (label) setText(grid, targetX + 2, bottomY + 1, splitLines(label)[0] ?? "", transitionLabelStyle(context.active))
 }
@@ -1291,7 +1238,7 @@ function drawBottomFeedback(
     context.path,
     targetX,
     targetBottomY,
-    targetIsChoice ? "│" : arrowHeadChar(arrowHeadStyle, "up"),
+    targetIsChoice ? "│" : diagramArrowHead("up", arrowHeadStyle),
     lineStyle,
   )
   if (targetIsChoice) addPathPoint(context.path, to.left, to.top)
@@ -1353,7 +1300,7 @@ function drawVerticalElbowTransition(
       : topToBottom
         ? "┬"
         : "┴"
-    : arrowHeadChar(arrowHeadStyle, topToBottom ? "down" : "up")
+    : diagramArrowHead(topToBottom ? "down" : "up", arrowHeadStyle)
   setPathCell(grid, context.path, endX, endY, targetChar, lineStyle)
   if (targetIsChoice) addPathPoint(context.path, to.left, to.top)
   if (label) {
@@ -1404,7 +1351,7 @@ function drawVertical(
     context.path,
     x,
     endY,
-    targetIsChoice ? "│" : arrowHeadChar(arrowHeadStyle, topToBottom ? "down" : "up"),
+    targetIsChoice ? "│" : diagramArrowHead(topToBottom ? "down" : "up", arrowHeadStyle),
     lineStyle,
   )
   if (targetIsChoice) addPathPoint(context.path, to.left, to.top)
@@ -1412,36 +1359,12 @@ function drawVertical(
     setText(grid, x + 2, Math.min(startY, endY) + 1, splitLines(label)[0] ?? "", transitionLabelStyle(context.active))
 }
 
-type JunctionDirection = "left" | "right" | "up" | "down"
-
-function connectionDirection(from: BoxBounds, to: BoxBounds): JunctionDirection {
+function connectionDirection(from: BoxBounds, to: BoxBounds): DiagramDirection {
   const deltaX = to.centerX - from.centerX
   const deltaY = to.centerY - from.centerY
   if (Math.abs(deltaX) >= Math.abs(deltaY) && deltaX !== 0) return deltaX > 0 ? "right" : "left"
   if (deltaY !== 0) return deltaY > 0 ? "down" : "up"
   return "right"
-}
-
-function junctionGlyph(connections: Set<JunctionDirection>): string {
-  const left = connections.has("left")
-  const right = connections.has("right")
-  const up = connections.has("up")
-  const down = connections.has("down")
-
-  if (left && right && up && down) return "┼"
-  if (left && right && down) return "┬"
-  if (left && right && up) return "┴"
-  if (up && down && right) return "├"
-  if (up && down && left) return "┤"
-  if (left && right) return "─"
-  if (up && down) return "│"
-  if (right && down) return "╭"
-  if (left && down) return "╮"
-  if (right && up) return "╰"
-  if (left && up) return "╯"
-  if (left || right) return "─"
-  if (up || down) return "│"
-  return "┼"
 }
 
 function drawChoiceJunctions(
@@ -1456,7 +1379,7 @@ function drawChoiceJunctions(
     const choiceBounds = bounds.get(state.id)
     if (!choiceBounds) continue
 
-    const connections = new Set<JunctionDirection>()
+    const connections = new Set<DiagramDirection>()
     let active = false
     for (const transition of diagram.transitions) {
       if (transition.to === state.id) {
@@ -1479,7 +1402,7 @@ function drawChoiceJunctions(
       grid,
       choiceBounds.left,
       choiceBounds.top,
-      junctionGlyph(connections),
+      diagramLineGlyph(connections, "rounded"),
       state.id === activeState ? "activeState" : active ? "activeTransition" : "choice",
     )
   }
@@ -1497,7 +1420,7 @@ function drawHiddenCompositeMarkerJunctions(
     const markerBounds = bounds.get(state.id)
     if (!markerBounds) continue
 
-    const connections = new Set<JunctionDirection>()
+    const connections = new Set<DiagramDirection>()
     let active = false
     for (const transition of diagram.transitions) {
       if (transition.to === state.id) {
@@ -1516,7 +1439,7 @@ function drawHiddenCompositeMarkerJunctions(
       grid,
       markerBounds.left,
       markerBounds.top,
-      junctionGlyph(connections),
+      diagramLineGlyph(connections, "rounded"),
       state.id === activeState ? "activeState" : active ? "activeTransition" : "transition",
     )
   }
@@ -1866,11 +1789,6 @@ export function renderStateDiagram(content: string, options: StateDiagramRenderO
 
 export function renderStateDiagramAnsi(content: string, options: StateDiagramAnsiOptions = {}): string {
   return renderGridAnsi(layoutStateDiagram(content, options), options.theme)
-}
-
-function colorsEqual(left?: RGBA, right?: RGBA): boolean {
-  if (!left || !right) return left === right
-  return left.equals(right)
 }
 
 function normalizeStateColors(value: StateDiagramStateColors | undefined): Map<string, RGBA> {

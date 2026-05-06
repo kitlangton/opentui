@@ -25,6 +25,7 @@ import {
   mermaidDiagramAdapterForCode,
   type MermaidDiagramAdapter,
 } from "./mermaid-diagram-router.js"
+import { colorsEqual } from "./diagram-style.js"
 
 export type MarkdownTableStyle = "grid" | "columns"
 
@@ -148,11 +149,6 @@ interface ResolvedTableRenderableOptions {
 
 const TRAILING_MARKDOWN_BLOCK_BREAKS_RE = /(?:\r?\n){2,}$/
 const TRAILING_MARKDOWN_BLOCK_NEWLINES_RE = /(?:\r?\n)+$/
-
-function colorsEqual(left?: RGBA, right?: RGBA): boolean {
-  if (!left || !right) return left === right
-  return left.equals(right)
-}
 
 export interface BlockState {
   token: MarkedToken

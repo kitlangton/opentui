@@ -50,6 +50,11 @@ export function blendColor(from: RGBA | undefined, to: RGBA | undefined, amount:
   return RGBA.fromInts(mix(fromR, toR), mix(fromG, toG), mix(fromB, toB), mix(fromA, toA))
 }
 
+export function colorsEqual(left?: RGBA, right?: RGBA): boolean {
+  if (!left || !right) return left === right
+  return left.equals(right)
+}
+
 export function brightenColor(color: RGBA | undefined, amount: number = 0.35): RGBA | undefined {
   if (!color) return undefined
 
@@ -65,6 +70,26 @@ export function createAnsiRampTheme<Style extends string>(
   return Object.fromEntries(
     styles.map((style, index) => [style, ansiFg(mixRgb(from, to, (index + 1) / (styles.length + 1)))]),
   ) as Record<Style, string>
+}
+
+export function createColorRampTheme<Style extends string>(
+  styles: readonly Style[],
+  from: RGBA,
+  to: RGBA,
+): Record<Style, RGBA>
+export function createColorRampTheme<Style extends string>(
+  styles: readonly Style[],
+  from: RGBA | undefined,
+  to: RGBA | undefined,
+): Record<Style, RGBA | undefined>
+export function createColorRampTheme<Style extends string>(
+  styles: readonly Style[],
+  from: RGBA | undefined,
+  to: RGBA | undefined,
+): Record<Style, RGBA | undefined> {
+  return Object.fromEntries(
+    styles.map((style, index) => [style, blendColor(from, to, (index + 1) / (styles.length + 1))]),
+  ) as Record<Style, RGBA | undefined>
 }
 
 export function createAnsiPeakAndRampTheme<PeakStyle extends string, RampStyle extends string>(
@@ -87,8 +112,6 @@ export function createColorPeakAndRamp<PeakStyle extends string, RampStyle exten
 ): Partial<Record<PeakStyle | RampStyle, RGBA | undefined>> {
   return {
     [peakStyle]: to,
-    ...Object.fromEntries(
-      rampStyles.map((style, index) => [style, blendColor(from, to, (index + 1) / (rampStyles.length + 1))]),
-    ),
+    ...createColorRampTheme(rampStyles, from, to),
   } as Partial<Record<PeakStyle | RampStyle, RGBA | undefined>>
 }

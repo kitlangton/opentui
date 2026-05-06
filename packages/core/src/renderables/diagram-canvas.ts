@@ -23,8 +23,14 @@ export interface DiagramCanvasTextOptions {
   trimBottom?: boolean
 }
 
+export interface DiagramCanvasTextSize {
+  width: number
+  height: number
+}
+
 export interface DiagramCanvasRunOptions<Style extends string, Metadata extends object = Record<string, never>> {
   key?: (cell: DiagramCanvasCell<Style, Metadata>) => readonly unknown[]
+  trimBottom?: boolean
 }
 
 function createEmptyCell<Style extends string, Metadata extends object>(): DiagramCanvasCell<Style, Metadata> {
@@ -51,6 +57,27 @@ export class DiagramCanvas<Style extends string, Metadata extends object = Recor
     this.rows = Array.from({ length: height }, () => Array.from({ length: width }, () => createEmptyCell()))
   }
 
+  private rowTextEnd(row: Array<DiagramCanvasCell<Style, Metadata>>): number {
+    let rowEnd = row.length
+    while (rowEnd > 0 && row[rowEnd - 1]?.char === " ") rowEnd -= 1
+    return rowEnd
+  }
+
+  private rowText(row: Array<DiagramCanvasCell<Style, Metadata>>, rowEnd = this.rowTextEnd(row)): string {
+    return row
+      .slice(0, rowEnd)
+      .map((cell) => cell.char)
+      .join("")
+  }
+
+  private textRowCount(trimBottom: boolean): number {
+    let rowCount = this.rows.length
+    if (!trimBottom) return rowCount
+
+    while (rowCount > 0 && this.rowTextEnd(this.rows[rowCount - 1]!) === 0) rowCount -= 1
+    return rowCount
+  }
+
   setCell(x: number, y: number, char: string, style?: Style, metadata?: Partial<Metadata>): void {
     if (y < 0 || y >= this.rows.length || x < 0 || x >= this.rows[y]!.length) return
 
@@ -67,16 +94,23 @@ export class DiagramCanvas<Style extends string, Metadata extends object = Recor
   }
 
   toString(options: DiagramCanvasTextOptions = {}): string {
-    const output = this.rows
-      .map((row) =>
-        row
-          .map((cell) => cell.char)
-          .join("")
-          .trimEnd(),
-      )
-      .join("\n")
+    const lines: string[] = []
+    const rowCount = this.textRowCount(options.trimBottom ?? false)
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      lines.push(this.rowText(this.rows[rowIndex]!))
+    }
+    return lines.join("\n")
+  }
 
-    return options.trimBottom ? output.trimEnd() : output
+  getTextSize(options: DiagramCanvasTextOptions = {}): DiagramCanvasTextSize {
+    const rowCount = this.textRowCount(options.trimBottom ?? false)
+    let width = 0
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+      const row = this.rows[rowIndex]!
+      const rowEnd = this.rowTextEnd(row)
+      if (rowEnd > 0) width = Math.max(width, this.measure(this.rowText(row, rowEnd)))
+    }
+    return { width, height: rowCount }
   }
 
   forEachRun(
@@ -84,12 +118,12 @@ export class DiagramCanvas<Style extends string, Metadata extends object = Recor
     onLineEnd: () => void,
     options: DiagramCanvasRunOptions<Style, Metadata> = {},
   ): void {
-    const key = options.key ?? ((cell: DiagramCanvasCell<Style, Metadata>) => [cell.style])
+    const key = options.key
+    const rowCount = this.textRowCount(options.trimBottom ?? false)
 
-    for (let rowIndex = 0; rowIndex < this.rows.length; rowIndex++) {
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
       const row = this.rows[rowIndex]!
-      let rowEnd = row.length
-      while (rowEnd > 0 && row[rowEnd - 1]?.char === " ") rowEnd -= 1
+      const rowEnd = this.rowTextEnd(row)
 
       let currentCell: DiagramCanvasCell<Style, Metadata> | undefined
       let currentKey: readonly unknown[] | undefined
@@ -102,8 +136,9 @@ export class DiagramCanvas<Style extends string, Metadata extends object = Recor
 
       for (let x = 0; x < rowEnd; x++) {
         const cell = row[x]!
-        const nextKey = key(cell)
-        if (!sameKey(currentKey, nextKey)) {
+        const nextKey = key?.(cell)
+        const sameRun = currentCell && (key ? sameKey(currentKey, nextKey!) : currentCell.style === cell.style)
+        if (!sameRun) {
           flush()
           currentCell = cell
           currentKey = nextKey
@@ -112,7 +147,7 @@ export class DiagramCanvas<Style extends string, Metadata extends object = Recor
       }
 
       flush()
-      if (rowIndex < this.rows.length - 1) onLineEnd()
+      if (rowIndex < rowCount - 1) onLineEnd()
     }
   }
 }

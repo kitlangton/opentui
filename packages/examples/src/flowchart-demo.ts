@@ -7,15 +7,18 @@ import {
   RGBA,
   renderFlowchartDiagram,
   renderFlowchartDiagramAnsi,
+  ScrollBoxRenderable,
   TextRenderable,
 } from "@opentui/core"
 import { setupCommonDemoKeys } from "./lib/standalone-keys.js"
 
 export const SKETCH_FLOWCHART = `flowchart LR
   Brief([Sketch Brief]) --> Parse[Parse Mermaid]
-  Parse --> Layout[Rank Layout]
+  subgraph Plan [Diagram Plan]
+    Parse --> Layout[Rank Layout]
+    Parse --> Cache[(Diagram Cache)]
+  end
   Layout --> Preview([Terminal Preview])
-  Parse --> Cache[(Diagram Cache)]
   Cache --> Preview`
 
 export const CHECKOUT_FLOWCHART = `flowchart TD
@@ -35,6 +38,28 @@ export const SUPPORT_FLOWCHART = `graph LR
   Bugs --> Done
   Docs --> Done`
 
+export const RELEASE_FLOWCHART = `flowchart LR
+  Spec([Spec]) --> Design[Design Review]
+  subgraph BuildPlan [Build Plan]
+    API[API Contracts]
+    UI[UI States]
+  end
+  subgraph Rollout [Release Path]
+    Stage[(Staging)]
+    Canary[Canary]
+    Prod[(Prod)]
+  end
+  Design --> API[API Contracts]
+  Design --> UI[UI States]
+  API --> Build[Build]
+  UI --> Build
+  Build --> Test[Tests]
+  Test -->|pass| Stage[(Staging)]
+  Stage --> Canary[Canary]
+  Canary -->|healthy| Prod[(Prod)]
+  Prod --> Observe[Observe]
+  Observe --> Notes([Notes])`
+
 interface FlowchartExample {
   title: string
   content: string
@@ -49,6 +74,7 @@ interface FlowchartTheme {
   database: string
   edge: string
   label: string
+  group: string
 }
 
 interface ParsedFlowchartTheme {
@@ -59,12 +85,14 @@ interface ParsedFlowchartTheme {
   database: RGBA
   edge: RGBA
   label: RGBA
+  group: RGBA
 }
 
 const EXAMPLES: FlowchartExample[] = [
   { title: "Sketch Pipeline", content: SKETCH_FLOWCHART },
   { title: "Checkout", content: CHECKOUT_FLOWCHART },
   { title: "Support Routing", content: SUPPORT_FLOWCHART },
+  { title: "Release Train", content: RELEASE_FLOWCHART },
 ]
 
 const THEMES: FlowchartTheme[] = [
@@ -74,9 +102,10 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D7E5DD",
     footer: "#8DA99B",
     node: "#E4EFE8",
-    database: "#E6B17E",
+    database: "#E4EFE8",
     edge: "#86E1C8",
     label: "#86E1C8",
+    group: "#5D766B",
   },
   {
     name: "Glacier",
@@ -84,9 +113,10 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D6DEE9",
     footer: "#94A3B8",
     node: "#E7EDF5",
-    database: "#FCD34D",
+    database: "#E7EDF5",
     edge: "#7DD3FC",
     label: "#BAE6FD",
+    group: "#64748B",
   },
   {
     name: "Ink Peach",
@@ -94,13 +124,15 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D8DEEE",
     footer: "#9AA6C1",
     node: "#E8ECF8",
-    database: "#FDBA74",
+    database: "#E8ECF8",
     edge: "#93C5FD",
     label: "#C4B5FD",
+    group: "#68738F",
   },
 ]
 
 let diagram: FlowchartDiagramRenderable | undefined
+let scrollBox: ScrollBoxRenderable | undefined
 let footer: TextRenderable | undefined
 let exampleIndex = 0
 let themeIndex = 0
@@ -110,10 +142,10 @@ let resizeHandler: (() => void) | undefined
 let animationTimer: ReturnType<typeof setInterval> | undefined
 let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
-const renderedSizeCache = new Map<string, { width: number; height: number }>()
 const parsedThemeCache = new WeakMap<FlowchartTheme, ParsedFlowchartTheme>()
 const THEME_TRANSITION_MS = 260
 const ANIMATION_INTERVAL_MS = 16
+const SCROLLBOX_PADDING = 1
 
 function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
   const cached = parsedThemeCache.get(theme)
@@ -127,6 +159,7 @@ function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
     database: parseColor(theme.database),
     edge: parseColor(theme.edge),
     label: parseColor(theme.label),
+    group: parseColor(theme.group),
   }
   parsedThemeCache.set(theme, parsed)
   return parsed
@@ -148,11 +181,17 @@ function mixTheme(from: ParsedFlowchartTheme, to: ParsedFlowchartTheme, amount: 
     database: mixColor(from.database, to.database, amount),
     edge: mixColor(from.edge, to.edge, amount),
     label: mixColor(from.label, to.label, amount),
+    group: mixColor(from.group, to.group, amount),
   }
 }
 
 function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): void {
   renderer.setBackgroundColor(colors.background)
+  if (scrollBox) {
+    scrollBox.backgroundColor = colors.background
+    scrollBox.viewport.backgroundColor = colors.background
+    scrollBox.content.backgroundColor = colors.background
+  }
   if (diagram) {
     diagram.batchUpdate(() => {
       diagram.fg = colors.foreground
@@ -161,6 +200,7 @@ function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): 
       diagram.databaseColor = colors.database
       diagram.edgeColor = colors.edge
       diagram.labelColor = colors.label
+      diagram.groupColor = colors.group
     })
   }
   if (footer) footer.fg = colors.footer
@@ -184,27 +224,32 @@ function tickAnimations(renderer: CliRenderer): void {
   if (amount >= 1) themeTransition = undefined
 }
 
-function renderedSize(content: string): { width: number; height: number } {
-  const cached = renderedSizeCache.get(content)
-  if (cached) return cached
-
-  const lines = renderFlowchartDiagram(content).split("\n")
-  const size = {
-    width: Math.max(0, ...lines.map((line) => line.length)),
-    height: lines.length,
-  }
-  renderedSizeCache.set(content, size)
-  return size
+function sizeDiagram(): void {
+  if (!diagram) return
+  diagram.width = diagram.renderedWidth
+  diagram.height = diagram.renderedHeight
 }
 
-function centerDiagram(renderer: CliRenderer = activeRenderer!): void {
-  if (!diagram) return
-  const size = renderedSize(EXAMPLES[exampleIndex]!.content)
-  diagram.left = Math.max(0, Math.floor((renderer.width - size.width) / 2))
-  diagram.top = Math.max(0, Math.floor((renderer.height - size.height) / 2))
-  diagram.width = size.width
-  diagram.height = size.height
-  if (footer) footer.top = Math.max(0, renderer.height - 2)
+function centerDiagramInViewport(renderer: CliRenderer = activeRenderer!): void {
+  if (!diagram || !scrollBox) return
+  const viewportWidth = Math.max(scrollBox.viewport.width, renderer.width)
+  const viewportHeight = Math.max(scrollBox.viewport.height, Math.max(1, renderer.height - 1))
+  diagram.marginLeft = Math.max(SCROLLBOX_PADDING, Math.floor((viewportWidth - diagram.renderedWidth) / 2))
+  diagram.marginTop = Math.max(SCROLLBOX_PADDING, Math.floor((viewportHeight - diagram.renderedHeight) / 2))
+  diagram.marginRight = SCROLLBOX_PADDING
+  diagram.marginBottom = SCROLLBOX_PADDING
+}
+
+function resizeSurface(renderer: CliRenderer = activeRenderer!): void {
+  if (scrollBox) {
+    scrollBox.width = renderer.width
+    scrollBox.height = Math.max(1, renderer.height - 1)
+    centerDiagramInViewport(renderer)
+  }
+  if (footer) {
+    footer.top = Math.max(0, renderer.height - 1)
+    footer.width = renderer.width
+  }
 }
 
 function applyTheme(renderer: CliRenderer = activeRenderer!): void {
@@ -218,13 +263,15 @@ function updateFooter(): void {
   if (!footer) return
   const example = EXAMPLES[exampleIndex]!
   const theme = THEMES[themeIndex]!
-  footer.content = `${example.title} · ${theme.name} · ←/→ example · T theme · Esc quit`
+  footer.content = `${example.title} · ${theme.name} · arrows/HJKL scroll · N/P example · 1-${EXAMPLES.length} jump · T theme · Esc quit`
 }
 
 function updateDiagram(): void {
   if (!diagram) return
   diagram.content = EXAMPLES[exampleIndex]!.content
-  centerDiagram()
+  sizeDiagram()
+  centerDiagramInViewport()
+  scrollBox?.scrollTo({ x: 0, y: 0 })
   updateFooter()
 }
 
@@ -233,44 +280,73 @@ export function run(renderer: CliRenderer): void {
   const theme = THEMES[themeIndex]!
   currentThemeColors = parsedTheme(theme)
   const example = EXAMPLES[exampleIndex]!
-  const size = renderedSize(example.content)
   renderer.setBackgroundColor(currentThemeColors.background)
+
+  scrollBox = new ScrollBoxRenderable(renderer, {
+    id: "flowchart-scrollbox",
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: renderer.width,
+    height: Math.max(1, renderer.height - 1),
+    scrollX: true,
+    scrollY: true,
+    rootOptions: {
+      border: false,
+      backgroundColor: currentThemeColors.background,
+    },
+    viewportOptions: {
+      backgroundColor: currentThemeColors.background,
+    },
+    contentOptions: {
+      backgroundColor: currentThemeColors.background,
+      minHeight: 0,
+    },
+  })
 
   diagram = new FlowchartDiagramRenderable(renderer, {
     id: "flowchart-demo",
     content: example.content,
-    position: "absolute",
-    left: Math.max(0, Math.floor((renderer.width - size.width) / 2)),
-    top: Math.max(0, Math.floor((renderer.height - size.height) / 2)),
-    width: size.width,
-    height: size.height,
     fg: currentThemeColors.foreground,
     bg: currentThemeColors.background,
     nodeColor: currentThemeColors.node,
     databaseColor: currentThemeColors.database,
     edgeColor: currentThemeColors.edge,
     labelColor: currentThemeColors.label,
+    groupColor: currentThemeColors.group,
   })
-  renderer.root.add(diagram)
+  sizeDiagram()
+  centerDiagramInViewport(renderer)
+  scrollBox.add(diagram)
+  renderer.root.add(scrollBox)
 
   footer = new TextRenderable(renderer, {
     id: "flowchart-footer",
     content: "",
     position: "absolute",
     left: 0,
-    top: Math.max(0, renderer.height - 2),
+    top: Math.max(0, renderer.height - 1),
+    width: renderer.width,
     fg: currentThemeColors.footer,
+    truncate: true,
   })
   renderer.root.add(footer)
   updateFooter()
+  scrollBox.focus()
 
   keyHandler = (key) => {
-    if (key.name === "right") {
+    if (key.name === "n") {
       exampleIndex = (exampleIndex + 1) % EXAMPLES.length
       updateDiagram()
-    } else if (key.name === "left") {
+    } else if (key.name === "p") {
       exampleIndex = (exampleIndex - 1 + EXAMPLES.length) % EXAMPLES.length
       updateDiagram()
+    } else if (/^[1-9]$/.test(key.name)) {
+      const nextExampleIndex = Number(key.name) - 1
+      if (nextExampleIndex < EXAMPLES.length) {
+        exampleIndex = nextExampleIndex
+        updateDiagram()
+      }
     } else if (key.name === "t") {
       themeIndex = (themeIndex + 1) % THEMES.length
       applyTheme(renderer)
@@ -278,7 +354,7 @@ export function run(renderer: CliRenderer): void {
   }
   renderer.keyInput.on("keypress", keyHandler)
 
-  resizeHandler = () => centerDiagram(renderer)
+  resizeHandler = () => resizeSurface(renderer)
   renderer.on("resize", resizeHandler)
   setupCommonDemoKeys(renderer)
 }
@@ -287,9 +363,10 @@ export function destroy(renderer: CliRenderer): void {
   if (animationTimer) clearInterval(animationTimer)
   if (keyHandler) renderer.keyInput.off("keypress", keyHandler)
   if (resizeHandler) renderer.off("resize", resizeHandler)
-  diagram?.destroyRecursively()
+  scrollBox?.destroyRecursively()
   footer?.destroyRecursively()
   diagram = undefined
+  scrollBox = undefined
   footer = undefined
   activeRenderer = undefined
   keyHandler = undefined

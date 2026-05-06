@@ -10,10 +10,11 @@ import { diagramPulseLevel, visitDiagramPulsePath } from "./diagram-pulse.js"
 import {
   ansiBg,
   ansiFg,
-  blendColor,
   brightenColor,
+  colorsEqual,
   createAnsiPeakAndRampTheme,
   createAnsiRampTheme,
+  createColorRampTheme,
   createColorPeakAndRamp,
   DIAGRAM_FADE_STEPS,
   numberedStyleKeys,
@@ -503,9 +504,15 @@ function styleBackgroundColor(style: SequenceCellStyle | undefined, colors: Sequ
   return style === "noteBadge" ? colors.noteBg : undefined
 }
 
-function colorsEqual(left?: RGBA, right?: RGBA): boolean {
-  if (!left || !right) return left === right
-  return left.equals(right)
+function createColorFadeTheme(
+  style: MessageStyle,
+  from: RGBA | undefined,
+  to: RGBA | undefined,
+): Record<FadeStyle, RGBA | undefined> {
+  return createColorRampTheme(numberedStyleKeys(`${style}Fade`, FADE_STEPS), from, to) as Record<
+    FadeStyle,
+    RGBA | undefined
+  >
 }
 
 function createPulseStyleColors(
@@ -522,16 +529,8 @@ function resolveSequenceStyleColors(colors: SequenceStyleColors): SequenceStyleC
 
   return {
     ...colors,
-    requestFade1: blendColor(colors.lifeline, colors.request, 1 / 6),
-    requestFade2: blendColor(colors.lifeline, colors.request, 2 / 6),
-    requestFade3: blendColor(colors.lifeline, colors.request, 3 / 6),
-    requestFade4: blendColor(colors.lifeline, colors.request, 4 / 6),
-    requestFade5: blendColor(colors.lifeline, colors.request, 5 / 6),
-    responseFade1: blendColor(colors.lifeline, colors.response, 1 / 6),
-    responseFade2: blendColor(colors.lifeline, colors.response, 2 / 6),
-    responseFade3: blendColor(colors.lifeline, colors.response, 3 / 6),
-    responseFade4: blendColor(colors.lifeline, colors.response, 4 / 6),
-    responseFade5: blendColor(colors.lifeline, colors.response, 5 / 6),
+    ...createColorFadeTheme("request", colors.lifeline, colors.request),
+    ...createColorFadeTheme("response", colors.lifeline, colors.response),
     ...createPulseStyleColors("request", colors.request, requestPulse),
     ...createPulseStyleColors("response", colors.response, responsePulse),
   }

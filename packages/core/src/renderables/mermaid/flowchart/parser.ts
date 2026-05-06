@@ -116,9 +116,9 @@ function stripNodeToken(token: string): string {
     .trim()
 }
 
-function edgeStyleFromArrow(arrow: string): FlowchartEdgeStyle | undefined {
-  if (arrow.includes("==")) return "thick"
-  if (arrow.includes(".")) return "dashed"
+function edgeStyleFromArrow(...arrows: string[]): FlowchartEdgeStyle | undefined {
+  if (arrows.some((arrow) => arrow.includes("=="))) return "thick"
+  if (arrows.some((arrow) => arrow.includes("."))) return "dashed"
   return undefined
 }
 
@@ -182,8 +182,7 @@ export function parseMermaidFlowchartDiagram(content: string): FlowchartDiagram 
       addNodeToSubgraph(currentSubgraph, to.id)
       const arrow = textEdge ? edgeMatch[4]! : edgeMatch[2]!
       const label = textEdge ? edgeMatch[3]! : (edgeMatch[3] ?? "")
-      const styleToken = textEdge ? `${edgeMatch[2]!}${arrow}` : arrow
-      edges.push(createEdge(from.id, to.id, label.trim(), edgeStyleFromArrow(styleToken)))
+      edges.push(createEdge(from.id, to.id, label.trim(), edgeStyleFromArrow(textEdge ? edgeMatch[2]! : arrow, arrow)))
       continue
     }
 

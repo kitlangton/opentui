@@ -1,4 +1,4 @@
-import type { BorderCharacters } from "../lib/border.js"
+import { BorderChars, type BorderCharacters } from "../lib/border.js"
 import {
   directionBetween,
   walkOrthogonalSegment,
@@ -29,6 +29,7 @@ export interface DiagramDiamondCharacters {
 }
 
 export const DIAGRAM_ARROW_HEADS = new Set(["▶", "◀", "▼", "▲", "→", "←", "↓", "↑"])
+const HEAVY_LINE_GLYPHS = new Set(Object.values(BorderChars.heavy))
 
 export const DIAGRAM_DIAMOND_CHARS = {
   topLeft: "╭",
@@ -122,17 +123,18 @@ export function diagramLineGlyph(
   const left = directions.has("left")
   const right = directions.has("right")
   if (lineStyle === "heavy") {
-    if (up && down && left && right) return "╋"
-    if (up && down && right) return "┣"
-    if (up && down && left) return "┫"
-    if (left && right && down) return "┳"
-    if (left && right && up) return "┻"
-    if (up && right) return "┗"
-    if (up && left) return "┛"
-    if (down && right) return "┏"
-    if (down && left) return "┓"
-    if (up || down) return "┃"
-    return "━"
+    const chars = BorderChars.heavy
+    if (up && down && left && right) return chars.cross
+    if (up && down && right) return chars.leftT
+    if (up && down && left) return chars.rightT
+    if (left && right && down) return chars.topT
+    if (left && right && up) return chars.bottomT
+    if (up && right) return chars.bottomLeft
+    if (up && left) return chars.bottomRight
+    if (down && right) return chars.topLeft
+    if (down && left) return chars.topRight
+    if (up || down) return chars.vertical
+    return chars.horizontal
   }
   if (up && down && left && right) return "┼"
   if (up && down && right) return "├"
@@ -148,7 +150,14 @@ export function diagramLineGlyph(
 }
 
 function isHeavyLineGlyph(char: string): boolean {
-  return "━┃┏┓┗┛┣┫┳┻╋".includes(char)
+  return HEAVY_LINE_GLYPHS.has(char)
+}
+
+function segmentGlyph(direction: DiagramDirection, lineStyle: DiagramLineStyle | undefined): string {
+  const directions = new Set<DiagramDirection>(
+    direction === "left" || direction === "right" ? ["left", "right"] : ["up", "down"],
+  )
+  return diagramLineGlyph(directions, "square", lineStyle === "heavy" ? "heavy" : "single")
 }
 
 export function mergeDiagramLineGlyph(
@@ -260,17 +269,10 @@ export function drawOrthogonalPath(
     const to = points[index]!
     const direction = directionBetween(from, to)
     if (!direction) continue
-    const glyph =
-      options.lineStyle === "heavy"
-        ? direction === "left" || direction === "right"
-          ? "━"
-          : "┃"
-        : direction === "left" || direction === "right"
-          ? "─"
-          : "│"
+    const glyph = segmentGlyph(direction, options.lineStyle)
     let step = index === 1 ? 0 : 1
     walkOrthogonalSegment(from, to, index === 1, (point) => {
-      setCell(point.x, point.y, options.lineStyle === "dashed" && step % 2 === 1 ? " " : glyph)
+      if (options.lineStyle !== "dashed" || step % 2 === 0) setCell(point.x, point.y, glyph)
       step += 1
     })
   }
@@ -284,6 +286,10 @@ export function drawOrthogonalPath(
     const directions = new Set<DiagramDirection>()
     if (fromDirection) directions.add(fromDirection)
     if (toDirection) directions.add(toDirection)
-    setCell(current.x, current.y, diagramLineGlyph(directions, options.cornerStyle, options.lineStyle))
+    setCell(
+      current.x,
+      current.y,
+      diagramLineGlyph(directions, options.cornerStyle, options.lineStyle === "heavy" ? "heavy" : "single"),
+    )
   }
 }

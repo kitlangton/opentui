@@ -1,6 +1,8 @@
 import {
   type CliRenderer,
   createCliRenderer,
+  flowchartNodeColorKey,
+  type FlowchartActiveEdgeSelection,
   FlowchartDiagramRenderable,
   type KeyEvent,
   parseColor,
@@ -10,6 +12,14 @@ import {
   ScrollBoxRenderable,
   TextRenderable,
 } from "@opentui/core"
+import {
+  animationNow,
+  clamp01,
+  diagramNodeActivationColors,
+  diagramNodeBackgroundFlashColors,
+  easeOutCubic,
+  mixColor,
+} from "./lib/diagram-animation.js"
 import { setupCommonDemoKeys } from "./lib/standalone-keys.js"
 
 export const SKETCH_FLOWCHART = `flowchart LR
@@ -56,28 +66,52 @@ export const HEY_JUDE_FLOWCHART = `flowchart TD
 
   subgraph Verse [don't]
     direction LR
-    Dont[don't] --> Trouble[make it bad<br/>be afraid<br/>let me down]
-    Trouble --> Turn[take a sad song<br/>go out and get her<br/>now go get her]
+    Dont[don't]
+    Bad[make it bad]
+    SadSong[take a sad song]
+    Afraid[be afraid]
+    GetHer[go out and get her]
+    Down[let me down]
+    GetHerNow[now go get her]
+    Dont --> Bad
+    Bad --> SadSong
+    Dont --> Afraid
+    Afraid --> GetHer
+    Dont --> Down
+    Down --> GetHerNow
   end
 
-  Turn --> Remember
+  SadSong --> Remember
+  GetHer --> Remember
+  GetHerNow --> Remember
 
   subgraph Remembering [remember to]
     direction LR
-    Remember[remember to] --> LetHer[let her into your heart<br/>let her under your skin]
+    Remember[remember to]
+    Heart[let her into your heart]
+    Skin[let her under your skin]
+    Remember --> Heart
+    Remember --> Skin
   end
 
-  LetHer --> ThenYou
+  Heart --> ThenYou
+  Skin --> ThenYou
 
   subgraph Bridge [then you]
     direction LR
-    ThenYou[then you] --> Begin[can start<br/>begin]
-    Begin --> MakeBetter[to make it better]
+    ThenYou[then you]
+    Start[can start]
+    Begin[begin]
+    MakeBetter[to make it better]
+    ThenYou --> Start
+    ThenYou --> Begin
+    Start --> MakeBetter
+    Begin --> MakeBetter
   end
 
   MakeBetter --> Better[better better better better waaaaaa]
   Better --> Na[na]
-  Na --> Na`
+  Na --> Title`
 
 interface FlowchartExample {
   title: string
@@ -90,8 +124,10 @@ interface FlowchartTheme {
   foreground: string
   footer: string
   node: string
+  activeNode: string
   database: string
   edge: string
+  activeEdge: string
   pulse: string
   label: string
   group: string
@@ -102,8 +138,10 @@ interface ParsedFlowchartTheme {
   foreground: RGBA
   footer: RGBA
   node: RGBA
+  activeNode: RGBA
   database: RGBA
   edge: RGBA
+  activeEdge: RGBA
   pulse: RGBA
   label: RGBA
   group: RGBA
@@ -124,9 +162,11 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D7E5DD",
     footer: "#8DA99B",
     node: "#E4EFE8",
+    activeNode: "#FFD3A0",
     database: "#E4EFE8",
     edge: "#86E1C8",
-    pulse: "#DDFFF6",
+    activeEdge: "#E6B17E",
+    pulse: "#FFF3D7",
     label: "#86E1C8",
     group: "#5D766B",
   },
@@ -136,9 +176,11 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D6DEE9",
     footer: "#94A3B8",
     node: "#E7EDF5",
+    activeNode: "#FFE38A",
     database: "#E7EDF5",
     edge: "#7DD3FC",
-    pulse: "#E0F2FE",
+    activeEdge: "#FCD34D",
+    pulse: "#FFF7CC",
     label: "#BAE6FD",
     group: "#64748B",
   },
@@ -148,9 +190,11 @@ const THEMES: FlowchartTheme[] = [
     foreground: "#D8DEEE",
     footer: "#9AA6C1",
     node: "#E8ECF8",
+    activeNode: "#FFD0A3",
     database: "#E8ECF8",
     edge: "#93C5FD",
-    pulse: "#FFE4D6",
+    activeEdge: "#FDBA74",
+    pulse: "#FFE7D0",
     label: "#C4B5FD",
     group: "#68738F",
   },
@@ -159,7 +203,10 @@ const THEMES: FlowchartTheme[] = [
 let diagram: FlowchartDiagramRenderable | undefined
 let scrollBox: ScrollBoxRenderable | undefined
 let footer: TextRenderable | undefined
-let exampleIndex = 0
+let exampleIndex = Math.max(
+  0,
+  EXAMPLES.findIndex((example) => example.title === "Hey Jude"),
+)
 let themeIndex = 0
 let activeRenderer: CliRenderer | undefined
 let keyHandler: ((key: KeyEvent) => void) | undefined
@@ -168,8 +215,15 @@ let animationTimer: ReturnType<typeof setInterval> | undefined
 let lastPulseStepAt = 0
 let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
+let followTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
+let previousActiveNode: string | undefined
+let flashingActiveNode: string | undefined
+let activeNodeTransitionStartedAt = 0
 const parsedThemeCache = new WeakMap<FlowchartTheme, ParsedFlowchartTheme>()
 const THEME_TRANSITION_MS = 260
+const EDGE_FADE_MS = 260
+const FOLLOW_TRANSITION_MS = 620
+const NODE_COLOR_FADE_MS = 840
 const ANIMATION_INTERVAL_MS = 16
 const PULSE_STEP_MS = 60
 const DEMO_PULSE_LENGTH = 9
@@ -185,8 +239,10 @@ function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
     foreground: parseColor(theme.foreground),
     footer: parseColor(theme.footer),
     node: parseColor(theme.node),
+    activeNode: parseColor(theme.activeNode),
     database: parseColor(theme.database),
     edge: parseColor(theme.edge),
+    activeEdge: parseColor(theme.activeEdge),
     pulse: parseColor(theme.pulse),
     label: parseColor(theme.label),
     group: parseColor(theme.group),
@@ -195,25 +251,91 @@ function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
   return parsed
 }
 
-function mixColor(from: RGBA, to: RGBA, amount: number): RGBA {
-  const [fromR, fromG, fromB, fromA] = from.toInts()
-  const [toR, toG, toB, toA] = to.toInts()
-  const mix = (left: number, right: number) => left + (right - left) * amount
-  return RGBA.fromInts(mix(fromR, toR), mix(fromG, toG), mix(fromB, toB), mix(fromA, toA))
-}
-
 function mixTheme(from: ParsedFlowchartTheme, to: ParsedFlowchartTheme, amount: number): ParsedFlowchartTheme {
   return {
     background: mixColor(from.background, to.background, amount),
     foreground: mixColor(from.foreground, to.foreground, amount),
     footer: mixColor(from.footer, to.footer, amount),
     node: mixColor(from.node, to.node, amount),
+    activeNode: mixColor(from.activeNode, to.activeNode, amount),
     database: mixColor(from.database, to.database, amount),
     edge: mixColor(from.edge, to.edge, amount),
+    activeEdge: mixColor(from.activeEdge, to.activeEdge, amount),
     pulse: mixColor(from.pulse, to.pulse, amount),
     label: mixColor(from.label, to.label, amount),
     group: mixColor(from.group, to.group, amount),
   }
+}
+
+function animatedActiveEdgeColor(colors: ParsedFlowchartTheme, now = animationNow()): RGBA {
+  const startedAt = followTransition?.startedAt ?? activeNodeTransitionStartedAt
+  const fadeAmount = easeOutCubic((now - startedAt) / EDGE_FADE_MS)
+  const baseColor = mixColor(colors.edge, colors.activeEdge, fadeAmount)
+  const pulseAmount = followTransition ? ((Math.sin(now / 68) + 1) / 2) * 0.68 : 0
+  return pulseAmount > 0 ? mixColor(baseColor, colors.activeNode, pulseAmount) : baseColor
+}
+
+function animatedNodeColors(colors: ParsedFlowchartTheme, now = animationNow()): Record<string, RGBA> | undefined {
+  const activeNode = diagram?.activeNode
+  if (followTransition && activeNode) {
+    const progress = clamp01((now - followTransition.startedAt) / EDGE_FADE_MS)
+    return {
+      [activeNode]: mixColor(colors.activeNode, colors.node, easeOutCubic(progress)),
+    }
+  }
+  if ((!previousActiveNode && !flashingActiveNode) || !activeNode) return undefined
+
+  const progress = clamp01((now - activeNodeTransitionStartedAt) / NODE_COLOR_FADE_MS)
+  if (progress >= 1) return undefined
+
+  return diagramNodeActivationColors({
+    activeId: activeNode,
+    previousId: previousActiveNode,
+    progress,
+    activeColor: colors.activeNode,
+    activeNeutralColor: colors.node,
+    pulseColor: colors.pulse,
+    keyForLevel: flowchartNodeColorKey,
+  })
+}
+
+function activeNodeBackgroundColors(
+  colors: ParsedFlowchartTheme,
+  now = animationNow(),
+): Record<string, RGBA> | undefined {
+  if (followTransition) return undefined
+  const activeNode = diagram?.activeNode
+  if ((!previousActiveNode && !flashingActiveNode) || !activeNode) return undefined
+
+  const progress = clamp01((now - activeNodeTransitionStartedAt) / NODE_COLOR_FADE_MS)
+  if (progress >= 1) return undefined
+
+  return diagramNodeBackgroundFlashColors({
+    activeId: activeNode,
+    progress,
+    backgroundColor: colors.background,
+    pulseColor: colors.pulse,
+    keyForLevel: flowchartNodeColorKey,
+  })
+}
+
+function applyAnimatedColors(now = animationNow()): void {
+  if (!diagram || !currentThemeColors) return
+  const nodeColors = animatedNodeColors(currentThemeColors, now)
+  const nodeBgColors = activeNodeBackgroundColors(currentThemeColors, now)
+  diagram.batchUpdate(() => {
+    diagram!.activeEdgeColor = animatedActiveEdgeColor(currentThemeColors!, now)
+    diagram!.nodeColors = nodeColors
+    diagram!.nodeBgColors = nodeBgColors
+  })
+  if (!nodeColors && !nodeBgColors) {
+    previousActiveNode = undefined
+    flashingActiveNode = undefined
+  }
+}
+
+function hasAnimatedColors(): boolean {
+  return Boolean(followTransition || previousActiveNode || flashingActiveNode)
 }
 
 function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): void {
@@ -228,8 +350,10 @@ function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): 
       diagram.fg = colors.foreground
       diagram.bg = colors.background
       diagram.nodeColor = colors.node
+      diagram.activeNodeColor = colors.activeNode
       diagram.databaseColor = colors.database
       diagram.edgeColor = colors.edge
+      diagram.activeEdgeColor = colors.activeEdge
       diagram.pulseColor = colors.pulse
       diagram.labelColor = colors.label
       diagram.groupColor = colors.group
@@ -259,16 +383,34 @@ function tickPulse(now: number): void {
 }
 
 function tickAnimations(renderer: CliRenderer): void {
-  const now = Date.now()
+  const now = animationNow()
   tickPulse(now)
 
-  if (!themeTransition) {
-    return
+  if (followTransition && diagram) {
+    const amount = Math.min(1, (now - followTransition.startedAt) / FOLLOW_TRANSITION_MS)
+    diagram.activeEdge = followTransition.edge
+    diagram.activeEdgeProgress = amount
+    diagram.pulseProgress = amount
+    if (amount >= 1) {
+      diagram.followSelectedConnection()
+      diagram.activeEdge = undefined
+      diagram.activeEdgeProgress = undefined
+      diagram.pulseProgress = undefined
+      followTransition = undefined
+      previousActiveNode = undefined
+      flashingActiveNode = diagram.activeNode
+      activeNodeTransitionStartedAt = now
+      updateFooter()
+    }
   }
 
-  const amount = Math.min(1, (now - themeTransition.startedAt) / THEME_TRANSITION_MS)
-  applyThemeColors(renderer, mixTheme(themeTransition.from, themeTransition.to, amount))
-  if (amount >= 1) themeTransition = undefined
+  if (themeTransition) {
+    const amount = Math.min(1, (now - themeTransition.startedAt) / THEME_TRANSITION_MS)
+    applyThemeColors(renderer, mixTheme(themeTransition.from, themeTransition.to, amount))
+    if (amount >= 1) themeTransition = undefined
+  }
+
+  if (hasAnimatedColors()) applyAnimatedColors(now)
 }
 
 function sizeDiagram(): void {
@@ -301,7 +443,7 @@ function resizeSurface(renderer: CliRenderer = activeRenderer!): void {
 
 function applyTheme(renderer: CliRenderer = activeRenderer!): void {
   const to = parsedTheme(THEMES[themeIndex]!)
-  themeTransition = { from: currentThemeColors ?? to, to, startedAt: Date.now() }
+  themeTransition = { from: currentThemeColors ?? to, to, startedAt: animationNow() }
   ensureAnimationTimer(renderer)
   updateFooter()
 }
@@ -310,12 +452,23 @@ function updateFooter(): void {
   if (!footer) return
   const example = EXAMPLES[exampleIndex]!
   const theme = THEMES[themeIndex]!
-  footer.content = `${example.title} · ${theme.name} · animated arrows · arrows/HJKL scroll · N/P example · 1-${EXAMPLES.length} jump · T theme · Esc quit`
+  const selected = diagram?.selectedConnection
+  const active = diagram?.activeNode
+    ? ` · active: ${diagram.activeNode}${selected ? ` → ${selected.to}` : ""}`
+    : " · Enter focus"
+  footer.content = `${example.title} · ${theme.name}${active} · Tab/Shift-Tab connection · Enter follow · arrows/HJKL scroll · N/P example · 1-${EXAMPLES.length} jump · T theme · Esc quit`
 }
 
 function updateDiagram(): void {
   if (!diagram) return
+  followTransition = undefined
+  previousActiveNode = undefined
+  flashingActiveNode = undefined
   diagram.content = EXAMPLES[exampleIndex]!.content
+  diagram.activeEdge = undefined
+  diagram.activeEdgeProgress = undefined
+  diagram.nodeColors = undefined
+  diagram.nodeBgColors = undefined
   sizeDiagram()
   centerDiagramInViewport()
   scrollBox?.scrollTo({ x: 0, y: 0 })
@@ -357,8 +510,10 @@ export function run(renderer: CliRenderer): void {
     fg: currentThemeColors.foreground,
     bg: currentThemeColors.background,
     nodeColor: currentThemeColors.node,
+    activeNodeColor: currentThemeColors.activeNode,
     databaseColor: currentThemeColors.database,
     edgeColor: currentThemeColors.edge,
+    activeEdgeColor: currentThemeColors.activeEdge,
     pulseColor: currentThemeColors.pulse,
     labelColor: currentThemeColors.label,
     groupColor: currentThemeColors.group,
@@ -366,7 +521,7 @@ export function run(renderer: CliRenderer): void {
     pulseLength: DEMO_PULSE_LENGTH,
     pulseGap: DEMO_PULSE_GAP,
   })
-  lastPulseStepAt = Date.now()
+  lastPulseStepAt = animationNow()
   ensureAnimationTimer(renderer)
   sizeDiagram()
   centerDiagramInViewport(renderer)
@@ -403,6 +558,30 @@ export function run(renderer: CliRenderer): void {
     } else if (key.name === "t") {
       themeIndex = (themeIndex + 1) % THEMES.length
       applyTheme(renderer)
+    } else if (key.name === "tab") {
+      key.preventDefault()
+      followTransition = undefined
+      if (key.shift) diagram?.selectPreviousConnection()
+      else diagram?.selectNextConnection()
+      updateFooter()
+    } else if (key.name === "return" || key.name === "enter") {
+      key.preventDefault()
+      if (!diagram?.activeNode) {
+        diagram?.activateFirstNode()
+        updateFooter()
+      } else if (diagram.selectedConnection) {
+        const selected = diagram.selectedConnection
+        const now = animationNow()
+        followTransition = { edge: selected, startedAt: now }
+        diagram.batchUpdate(() => {
+          diagram!.activeEdge = selected
+          diagram!.activeEdgeProgress = 0
+          diagram!.pulseProgress = 0
+        })
+        applyAnimatedColors(now)
+        updateFooter()
+        ensureAnimationTimer(renderer)
+      }
     }
   }
   renderer.keyInput.on("keypress", keyHandler)
@@ -427,13 +606,21 @@ export function destroy(renderer: CliRenderer): void {
   animationTimer = undefined
   lastPulseStepAt = 0
   themeTransition = undefined
+  followTransition = undefined
+  previousActiveNode = undefined
+  flashingActiveNode = undefined
+  activeNodeTransitionStartedAt = 0
   currentThemeColors = undefined
 }
 
 if (import.meta.main) {
   if (process.argv.includes("--print")) {
     const exampleArg = process.argv.find((arg) => arg.startsWith("--example="))
-    const index = Math.max(0, Math.min(EXAMPLES.length - 1, Number.parseInt(exampleArg?.split("=")[1] ?? "1", 10) - 1))
+    const defaultExample = String(exampleIndex + 1)
+    const index = Math.max(
+      0,
+      Math.min(EXAMPLES.length - 1, Number.parseInt(exampleArg?.split("=")[1] ?? defaultExample, 10) - 1),
+    )
     const plain = process.argv.includes("--plain")
     const content = EXAMPLES[index]!.content
     process.stdout.write(plain ? renderFlowchartDiagram(content) : renderFlowchartDiagramAnsi(content))

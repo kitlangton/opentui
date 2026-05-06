@@ -55,4 +55,10 @@ export interface FlowchartEdgeRoute {
   points: FlowchartPoint[]
 }
 
+export interface FlowchartActiveEdgeSelection {
+  from: string
+  to: string
+  index?: number
+}
+
 export type FlowchartEdgeDirection = DiagramDirection

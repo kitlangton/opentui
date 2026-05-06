@@ -5,17 +5,21 @@ import {
   boundsCenter,
   boundsSidePoint,
   centerCoordinate,
+  coordinate,
   keepAfter,
   keepBefore,
   lane,
   oppositeSide,
   orthogonalPath,
+  pathThrough,
   pathViaLane,
   sideForDirection,
   snapCoordinate,
   shiftPoint,
   withCoordinate,
+  type DiagramAxis,
   type DiagramDirection,
+  type DiagramLane,
   type DiagramSide,
 } from "../../diagram-geometry.js"
 import type {
@@ -25,6 +29,8 @@ import type {
   FlowchartEdgeRoute,
   FlowchartNodeBounds,
   FlowchartPoint,
+  FlowchartSubgraph,
+  FlowchartSubgraphBounds,
 } from "./types.js"
 
 export { directionBetween as flowchartDirectionBetween } from "../../diagram-geometry.js"
@@ -35,7 +41,7 @@ type HorizontalTravel = Extract<DiagramDirection, "left" | "right">
 type VerticalTravel = Extract<DiagramDirection, "up" | "down">
 type PortRole = "source" | "target"
 
-interface HorizontalEdgeRecord {
+interface EdgeRecord {
   edge: FlowchartEdge
   sourcePort: FlowchartPoint
   targetPort: FlowchartPoint
@@ -69,10 +75,18 @@ function horizontalTravel(
   return direction === "RL" ? (targetIsRight ? "right" : "left") : targetIsSameOrRight ? "right" : "left"
 }
 
-function verticalBackEdgePath(from: FlowchartNodeBounds, to: FlowchartNodeBounds): FlowchartPoint[] {
-  const start = boundsSidePoint(from, "right")
-  const end = boundsSidePoint(to, "right")
-  return pathViaLane(start, lane("x", afterFarthestCoordinate([start, end], "x", "right", BUS_CLEARANCE)), end)
+function verticalBackEdgePath(
+  from: FlowchartNodeBounds,
+  to: FlowchartNodeBounds,
+  leftBoundary?: number,
+): FlowchartPoint[] {
+  const start = boundsSidePoint(from, "left")
+  const end = boundsSidePoint(to, "left")
+  const busX = Math.min(
+    afterFarthestCoordinate([start, end], "x", "left", BUS_CLEARANCE),
+    leftBoundary === undefined ? Number.POSITIVE_INFINITY : leftBoundary - BUS_CLEARANCE * 2,
+  )
+  return pathViaLane(start, lane("x", busX), end)
 }
 
 function verticalForwardEdgePath(from: FlowchartNodeBounds, to: FlowchartNodeBounds): FlowchartPoint[] {
@@ -106,20 +120,28 @@ function selfEdgePath(bounds: FlowchartNodeBounds): FlowchartPoint[] {
   return [start, { x: rightLaneX, y: start.y }, { x: rightLaneX, y: bottomLaneY }, { x: end.x, y: bottomLaneY }, end]
 }
 
-function edgePath(from: FlowchartNodeBounds, to: FlowchartNodeBounds, direction: FlowchartDirection): FlowchartPoint[] {
+function edgePath(
+  from: FlowchartNodeBounds,
+  to: FlowchartNodeBounds,
+  direction: FlowchartDirection,
+  leftBoundary?: number,
+): FlowchartPoint[] {
   if (from.id === to.id) return selfEdgePath(from)
   if (!isVerticalDirection(direction)) return horizontalEdgePath(from, to, direction)
-  return isVerticalBackEdge(from, to, direction) ? verticalBackEdgePath(from, to) : verticalForwardEdgePath(from, to)
+  return isVerticalBackEdge(from, to, direction)
+    ? verticalBackEdgePath(from, to, leftBoundary)
+    : verticalForwardEdgePath(from, to)
 }
 
 function sourceFanOutLane(
   sourcePort: FlowchartPoint,
   targetPorts: readonly FlowchartPoint[],
-  travel: HorizontalTravel,
+  axis: DiagramAxis,
+  travel: DiagramDirection,
 ): number {
   return keepBefore(
-    advanceCoordinate(sourcePort.x, travel, BUS_CLEARANCE),
-    beforeNearestCoordinate(targetPorts, "x", travel, NODE_CLEARANCE),
+    advanceCoordinate(coordinate(sourcePort, axis), travel, BUS_CLEARANCE),
+    beforeNearestCoordinate(targetPorts, axis, travel, NODE_CLEARANCE),
     travel,
   )
 }
@@ -127,11 +149,12 @@ function sourceFanOutLane(
 function targetFanInLane(
   sourcePorts: readonly FlowchartPoint[],
   targetPort: FlowchartPoint,
-  travel: HorizontalTravel,
+  axis: DiagramAxis,
+  travel: DiagramDirection,
 ): number {
   return keepAfter(
-    advanceCoordinate(targetPort.x, travel, -BUS_CLEARANCE),
-    afterFarthestCoordinate(sourcePorts, "x", travel, NODE_CLEARANCE),
+    advanceCoordinate(coordinate(targetPort, axis), travel, -BUS_CLEARANCE),
+    afterFarthestCoordinate(sourcePorts, axis, travel, NODE_CLEARANCE),
     travel,
   )
 }
@@ -141,13 +164,18 @@ function horizontalPort(bounds: FlowchartNodeBounds, travel: HorizontalTravel, r
   return boundsSidePoint(bounds, side)
 }
 
+function verticalPort(bounds: FlowchartNodeBounds, travel: VerticalTravel, role: PortRole): FlowchartPoint {
+  const side = role === "source" ? sideForDirection(travel) : oppositeSide(sideForDirection(travel))
+  return boundsSidePoint(bounds, side)
+}
+
 function horizontalForwardRecords(
   edges: FlowchartEdge[],
   bounds: Map<string, FlowchartNodeBounds>,
   direction: FlowchartDirection,
-): HorizontalEdgeRecord[] {
+): EdgeRecord[] {
   const travel = direction === "RL" ? "left" : "right"
-  const records: HorizontalEdgeRecord[] = []
+  const records: EdgeRecord[] = []
   for (const edge of edges) {
     const source = bounds.get(edge.from)
     const target = bounds.get(edge.to)
@@ -166,11 +194,89 @@ function horizontalForwardRecords(
   return records
 }
 
-function groupRecords(
-  records: readonly HorizontalEdgeRecord[],
-  key: (record: HorizontalEdgeRecord) => string,
-): Map<string, HorizontalEdgeRecord[]> {
-  const groups = new Map<string, HorizontalEdgeRecord[]>()
+function verticalForwardRecords(
+  edges: FlowchartEdge[],
+  bounds: Map<string, FlowchartNodeBounds>,
+  direction: FlowchartDirection,
+): EdgeRecord[] {
+  const travel = direction === "BT" ? "up" : "down"
+  const records: EdgeRecord[] = []
+  for (const edge of edges) {
+    const source = bounds.get(edge.from)
+    const target = bounds.get(edge.to)
+    if (!source || !target) continue
+    const forward =
+      direction === "BT"
+        ? centerCoordinate(target, "y") < centerCoordinate(source, "y")
+        : centerCoordinate(target, "y") > centerCoordinate(source, "y")
+    if (!forward) continue
+    records.push({
+      edge,
+      sourcePort: verticalPort(source, travel, "source"),
+      targetPort: verticalPort(target, travel, "target"),
+    })
+  }
+  return records
+}
+
+function horizontalExitSubgraph(diagram: FlowchartDiagram, edge: FlowchartEdge): FlowchartSubgraph | undefined {
+  for (const subgraph of [...(diagram.subgraphs ?? [])].reverse()) {
+    if (subgraph.direction !== "LR" && subgraph.direction !== "RL") continue
+    if (subgraph.nodeIds.includes(edge.from) && !subgraph.nodeIds.includes(edge.to)) return subgraph
+  }
+  return undefined
+}
+
+function horizontalEntrySubgraph(diagram: FlowchartDiagram, edge: FlowchartEdge): FlowchartSubgraph | undefined {
+  for (const subgraph of [...(diagram.subgraphs ?? [])].reverse()) {
+    if (subgraph.direction !== "LR" && subgraph.direction !== "RL") continue
+    if (subgraph.nodeIds.includes(edge.to) && !subgraph.nodeIds.includes(edge.from)) return subgraph
+  }
+  return undefined
+}
+
+function horizontalSubgraphEntryTravel(subgraph: FlowchartSubgraph): HorizontalTravel {
+  return subgraph.direction === "RL" ? "left" : "right"
+}
+
+function horizontalSubgraphEntryLane(subgraph: FlowchartSubgraph, subgraphBound: FlowchartSubgraphBounds): number {
+  return subgraph.direction === "RL"
+    ? subgraphBound.left + subgraphBound.width + BUS_CLEARANCE
+    : subgraphBound.left - BUS_CLEARANCE
+}
+
+function horizontalSubgraphJoinY(from: FlowchartSubgraphBounds, targetSubgraphBound: FlowchartSubgraphBounds): number {
+  if (from.centerY <= targetSubgraphBound.centerY) {
+    const start = from.top + from.height
+    const end = targetSubgraphBound.top - 1
+    return start <= end ? Math.floor((start + end) / 2) : start
+  }
+
+  const start = targetSubgraphBound.top + targetSubgraphBound.height
+  const end = from.top - 1
+  return start <= end ? Math.floor((start + end) / 2) : end
+}
+
+function horizontalSubgraphExitJoinY(
+  from: FlowchartSubgraphBounds,
+  targetPort: FlowchartPoint,
+  targetBelow: boolean,
+): number {
+  if (targetBelow) {
+    const outside = from.top + from.height
+    const beforeTarget = targetPort.y - 1
+    const preferred = targetPort.y - BUS_CLEARANCE
+    return outside <= beforeTarget ? Math.min(Math.max(outside, preferred), beforeTarget) : beforeTarget
+  }
+
+  const outside = from.top - 1
+  const afterTarget = targetPort.y + 1
+  const preferred = targetPort.y + BUS_CLEARANCE
+  return afterTarget <= outside ? Math.max(Math.min(outside, preferred), afterTarget) : afterTarget
+}
+
+function groupRecords(records: readonly EdgeRecord[], key: (record: EdgeRecord) => string): Map<string, EdgeRecord[]> {
+  const groups = new Map<string, EdgeRecord[]>()
   for (const record of records) {
     const groupKey = key(record)
     const group = groups.get(groupKey) ?? []
@@ -184,13 +290,23 @@ function fanRoute(
   edge: FlowchartEdge,
   sourcePort: FlowchartPoint,
   targetPort: FlowchartPoint,
-  busX: number,
+  routeLane: DiagramLane,
 ): FlowchartEdgeRoute {
-  return { edge, points: pathViaLane(sourcePort, lane("x", busX), targetPort) }
+  return { edge, points: pathViaLane(sourcePort, routeLane, targetPort) }
+}
+
+function alignClusteredVerticalSources(records: readonly EdgeRecord[]): EdgeRecord[] {
+  const xs = records.map((record) => record.sourcePort.x)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  if (maxX - minX > 1) return [...records]
+
+  const x = Math.round(xs.reduce((total, value) => total + value, 0) / xs.length)
+  return records.map((record) => ({ ...record, sourcePort: { ...record.sourcePort, x } }))
 }
 
 function routeHorizontalFanOut(
-  records: readonly HorizontalEdgeRecord[],
+  records: readonly EdgeRecord[],
   direction: FlowchartDirection,
   handled: Set<FlowchartEdge>,
   routes: FlowchartEdgeRoute[],
@@ -201,16 +317,16 @@ function routeHorizontalFanOut(
     const sourcePort = sourceRecords[0]!.sourcePort
     const targetPorts = sourceRecords.map((record) => record.targetPort)
 
-    const busX = sourceFanOutLane(sourcePort, targetPorts, travel)
+    const busX = sourceFanOutLane(sourcePort, targetPorts, "x", travel)
     for (const record of sourceRecords) {
-      routes.push(fanRoute(record.edge, sourcePort, record.targetPort, busX))
+      routes.push(fanRoute(record.edge, sourcePort, record.targetPort, lane("x", busX)))
       handled.add(record.edge)
     }
   }
 }
 
 function routeHorizontalFanIn(
-  records: readonly HorizontalEdgeRecord[],
+  records: readonly EdgeRecord[],
   direction: FlowchartDirection,
   handled: Set<FlowchartEdge>,
   routes: FlowchartEdgeRoute[],
@@ -222,11 +338,148 @@ function routeHorizontalFanIn(
     const targetPort = targetRecords[0]!.targetPort
     const sourcePorts = targetRecords.map((record) => record.sourcePort)
 
-    const busX = targetFanInLane(sourcePorts, targetPort, travel)
+    const busX = targetFanInLane(sourcePorts, targetPort, "x", travel)
     for (const record of targetRecords) {
-      routes.push(fanRoute(record.edge, record.sourcePort, targetPort, busX))
+      routes.push(fanRoute(record.edge, record.sourcePort, targetPort, lane("x", busX)))
       handled.add(record.edge)
     }
+  }
+}
+
+function routeVerticalFanOut(
+  records: readonly EdgeRecord[],
+  direction: FlowchartDirection,
+  handled: Set<FlowchartEdge>,
+  routes: FlowchartEdgeRoute[],
+): void {
+  for (const sourceRecords of groupRecords(records, (record) => record.edge.from).values()) {
+    if (sourceRecords.length < 2) continue
+    const travel = direction === "BT" ? "up" : "down"
+    const sourcePort = sourceRecords[0]!.sourcePort
+    const targetPorts = sourceRecords.map((record) => record.targetPort)
+
+    const busY = sourceFanOutLane(sourcePort, targetPorts, "y", travel)
+    for (const record of sourceRecords) {
+      routes.push(fanRoute(record.edge, sourcePort, record.targetPort, lane("y", busY)))
+      handled.add(record.edge)
+    }
+  }
+}
+
+function routeVerticalFanIn(
+  records: readonly EdgeRecord[],
+  direction: FlowchartDirection,
+  handled: Set<FlowchartEdge>,
+  routes: FlowchartEdgeRoute[],
+): void {
+  const unhandledRecords = records.filter((record) => !handled.has(record.edge))
+  for (const unalignedTargetRecords of groupRecords(unhandledRecords, (record) => record.edge.to).values()) {
+    const targetRecords = alignClusteredVerticalSources(unalignedTargetRecords)
+    if (targetRecords.length < 2) continue
+    const travel = direction === "BT" ? "up" : "down"
+    const targetPort = targetRecords[0]!.targetPort
+    const sourcePorts = targetRecords.map((record) => record.sourcePort)
+
+    const busY = targetFanInLane(sourcePorts, targetPort, "y", travel)
+    for (const record of targetRecords) {
+      routes.push(fanRoute(record.edge, record.sourcePort, targetPort, lane("y", busY)))
+      handled.add(record.edge)
+    }
+  }
+}
+
+function routeHorizontalSubgraphExitFanIn(
+  diagram: FlowchartDiagram,
+  bounds: Map<string, FlowchartNodeBounds>,
+  subgraphBounds: ReadonlyMap<string, FlowchartSubgraphBounds> | undefined,
+  handled: Set<FlowchartEdge>,
+  routes: FlowchartEdgeRoute[],
+): void {
+  if (!subgraphBounds) return
+
+  const groups = new Map<string, { edge: FlowchartEdge; subgraph: FlowchartSubgraph; source: FlowchartNodeBounds }[]>()
+  for (const edge of diagram.edges) {
+    if (handled.has(edge)) continue
+    const subgraph = horizontalExitSubgraph(diagram, edge)
+    const source = bounds.get(edge.from)
+    const target = bounds.get(edge.to)
+    if (!subgraph || !source || !target) continue
+
+    const key = `${subgraph.id}:${edge.to}`
+    const group = groups.get(key) ?? []
+    group.push({ edge, subgraph, source })
+    groups.set(key, group)
+  }
+
+  for (const group of groups.values()) {
+    const subgraph = group[0]!.subgraph
+    const subgraphBound = subgraphBounds.get(subgraph.id)
+    const target = bounds.get(group[0]!.edge.to)
+    if (!subgraphBound || !target) continue
+
+    const travel: HorizontalTravel = subgraph.direction === "RL" ? "left" : "right"
+    const busX =
+      subgraph.direction === "RL"
+        ? subgraphBound.left - BUS_CLEARANCE
+        : subgraphBound.left + subgraphBound.width + BUS_CLEARANCE
+    const targetSubgraph = horizontalEntrySubgraph(diagram, group[0]!.edge)
+    const targetSubgraphBound = targetSubgraph ? subgraphBounds.get(targetSubgraph.id) : undefined
+    const targetBelow = target.centerY >= subgraphBound.centerY
+    const targetPort = targetSubgraph
+      ? horizontalPort(target, horizontalSubgraphEntryTravel(targetSubgraph), "target")
+      : boundsSidePoint(target, targetBelow ? "top" : "bottom")
+    const joinY = targetSubgraphBound
+      ? horizontalSubgraphJoinY(subgraphBound, targetSubgraphBound)
+      : horizontalSubgraphExitJoinY(subgraphBound, targetPort, targetBelow)
+    const entryX =
+      targetSubgraph && targetSubgraphBound
+        ? horizontalSubgraphEntryLane(targetSubgraph, targetSubgraphBound)
+        : targetPort.x
+
+    for (const record of group) {
+      const sourcePort = horizontalPort(record.source, travel, "source")
+      routes.push({
+        edge: record.edge,
+        points: pathThrough([
+          sourcePort,
+          { x: busX, y: sourcePort.y },
+          { x: busX, y: joinY },
+          { x: entryX, y: joinY },
+          { x: entryX, y: targetPort.y },
+          targetPort,
+        ]),
+      })
+      handled.add(record.edge)
+    }
+  }
+}
+
+function routeHorizontalSubgraphEntries(
+  diagram: FlowchartDiagram,
+  bounds: Map<string, FlowchartNodeBounds>,
+  subgraphBounds: ReadonlyMap<string, FlowchartSubgraphBounds> | undefined,
+  handled: Set<FlowchartEdge>,
+  routes: FlowchartEdgeRoute[],
+): void {
+  if (!subgraphBounds) return
+
+  for (const edge of diagram.edges) {
+    if (handled.has(edge)) continue
+    const subgraph = horizontalEntrySubgraph(diagram, edge)
+    const subgraphBound = subgraph ? subgraphBounds.get(subgraph.id) : undefined
+    const from = bounds.get(edge.from)
+    const to = bounds.get(edge.to)
+    if (!subgraph || !subgraphBound || !from || !to) continue
+
+    const targetPort = horizontalPort(to, horizontalSubgraphEntryTravel(subgraph), "target")
+    const entryX = horizontalSubgraphEntryLane(subgraph, subgraphBound)
+    const travel = verticalTravel(from, to)
+    const sourcePort = verticalPort(from, travel, "source")
+    routes.push({
+      edge,
+      points: pathThrough([sourcePort, { x: entryX, y: sourcePort.y }, { x: entryX, y: targetPort.y }, targetPort]),
+    })
+    handled.add(edge)
   }
 }
 
@@ -234,9 +487,13 @@ export function routeFlowchartEdges(
   diagram: FlowchartDiagram,
   bounds: Map<string, FlowchartNodeBounds>,
   directionForEdge: (edge: FlowchartEdge) => FlowchartDirection = () => diagram.direction,
+  subgraphBounds?: ReadonlyMap<string, FlowchartSubgraphBounds>,
 ): FlowchartEdgeRoute[] {
   const handled = new Set<FlowchartEdge>()
   const routes: FlowchartEdgeRoute[] = []
+  const leftBoundary = subgraphBounds
+    ? Math.min(...[...bounds.values(), ...subgraphBounds.values()].map((bound) => bound.left))
+    : undefined
 
   for (const direction of ["LR", "RL"] satisfies FlowchartDirection[]) {
     const horizontalEdges = diagram.edges.filter((edge) => directionForEdge(edge) === direction)
@@ -246,12 +503,23 @@ export function routeFlowchartEdges(
     routeHorizontalFanIn(records, direction, handled, routes)
   }
 
+  routeHorizontalSubgraphExitFanIn(diagram, bounds, subgraphBounds, handled, routes)
+  routeHorizontalSubgraphEntries(diagram, bounds, subgraphBounds, handled, routes)
+
+  for (const direction of ["TD", "TB", "BT"] satisfies FlowchartDirection[]) {
+    const verticalEdges = diagram.edges.filter((edge) => directionForEdge(edge) === direction)
+    if (verticalEdges.length === 0) continue
+    const records = verticalForwardRecords(verticalEdges, bounds, direction)
+    routeVerticalFanOut(records, direction, handled, routes)
+    routeVerticalFanIn(records, direction, handled, routes)
+  }
+
   for (const edge of diagram.edges) {
     if (handled.has(edge)) continue
     const from = bounds.get(edge.from)
     const to = bounds.get(edge.to)
     if (!from || !to) continue
-    routes.push({ edge, points: edgePath(from, to, directionForEdge(edge)) })
+    routes.push({ edge, points: edgePath(from, to, directionForEdge(edge), leftBoundary) })
   }
   return routes
 }

@@ -1,8 +1,8 @@
 import type { BorderStyle } from "../../../lib/border.js"
 import type { ColorInput } from "../../../lib/RGBA.js"
 import type { TextBufferOptions } from "../../TextBufferRenderable.js"
-import type { FlowchartDiagramAnsiTheme } from "./style.js"
-import type { FlowchartDirection } from "./types.js"
+import type { FlowchartDiagramAnsiTheme, FlowchartNodeColors } from "./style.js"
+import type { FlowchartActiveEdgeSelection, FlowchartDirection } from "./types.js"
 
 const DEFAULT_PULSE_LENGTH = 7
 const DEFAULT_PULSE_GAP = 16
@@ -38,6 +38,9 @@ export interface FlowchartDiagramRenderOptions {
   pulseProgress?: number
   pulseLength?: number
   pulseGap?: number
+  activeNode?: string
+  activeEdge?: FlowchartActiveEdgeSelection
+  activeEdgeProgress?: number
 }
 
 export interface FlowchartDiagramAnsiOptions extends FlowchartDiagramRenderOptions {
@@ -47,8 +50,12 @@ export interface FlowchartDiagramAnsiOptions extends FlowchartDiagramRenderOptio
 export interface FlowchartDiagramOptions extends TextBufferOptions, FlowchartDiagramRenderOptions {
   content?: string
   nodeColor?: ColorInput
+  nodeColors?: FlowchartNodeColors
+  nodeBgColors?: FlowchartNodeColors
   databaseColor?: ColorInput
   edgeColor?: ColorInput
+  activeNodeColor?: ColorInput
+  activeEdgeColor?: ColorInput
   pulseColor?: ColorInput
   labelColor?: ColorInput
   groupColor?: ColorInput

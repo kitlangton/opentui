@@ -26,7 +26,7 @@ export const DEFAULT_MIN_RANK_GAP = 10
 export const DEFAULT_MIN_VERTICAL_RANK_GAP = 4
 const SUBGRAPH_PADDING_X = 2
 const SUBGRAPH_PADDING_TOP = 1
-const SUBGRAPH_PADDING_BOTTOM = 3
+const SUBGRAPH_PADDING_BOTTOM = 1
 
 export interface FlowchartLayout {
   diagram: FlowchartDiagram
@@ -401,7 +401,8 @@ function layoutLocalSubgraphDirections(
       edges: diagram.edges.filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to)),
       subgraphs: [],
     }
-    const localBounds = layoutRankedNodes(localDiagram, subgraph.direction, sizes, minNodeGap, requestedMinRankGap)
+    const localNodeGap = isHorizontalDirection(subgraph.direction) ? Math.max(4, minNodeGap - 1) : minNodeGap
+    const localBounds = layoutRankedNodes(localDiagram, subgraph.direction, sizes, localNodeGap, requestedMinRankGap)
     const localExtent = boundsFromChildren([...localBounds.values()])
     if (!localExtent) continue
 
@@ -536,6 +537,8 @@ export function layoutFlowchartDiagram(content: string, options: FlowchartDiagra
   let subgraphBounds = layoutSubgraphs(diagram, bounds, routes)
   separateLocalSubgraphItems(diagram, bounds, subgraphBounds, Math.max(1, Math.floor(requestedMinRankGap / 2)))
   routes = routeFlowchartEdges(diagram, bounds, (edge) => edgeDirection(diagram, edge))
+  subgraphBounds = layoutSubgraphs(diagram, bounds, routes)
+  routes = routeFlowchartEdges(diagram, bounds, (edge) => edgeDirection(diagram, edge), subgraphBounds)
   subgraphBounds = layoutSubgraphs(diagram, bounds, routes)
   const allBounds = [...bounds.values(), ...subgraphBounds.values(), ...routeRenderBounds(routes)]
   const dx = Math.max(0, -Math.min(0, ...allBounds.map((bound) => bound.left)))

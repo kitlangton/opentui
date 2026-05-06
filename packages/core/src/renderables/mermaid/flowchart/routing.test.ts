@@ -99,7 +99,7 @@ describe("flowchart routing", () => {
     ])
   })
 
-  test("routes vertical back-edges around the right side", () => {
+  test("routes vertical back-edges around the left side", () => {
     const edge = { from: "B", to: "A", label: "" }
     const routes = routeFlowchartEdges(
       diagram("TD", [edge]),
@@ -113,10 +113,10 @@ describe("flowchart routing", () => {
       {
         edge,
         points: [
-          { x: 5, y: 13 },
-          { x: 8, y: 13 },
-          { x: 8, y: 1 },
-          { x: 5, y: 1 },
+          { x: -1, y: 13 },
+          { x: -4, y: 13 },
+          { x: -4, y: 1 },
+          { x: -1, y: 1 },
         ],
       },
     ])

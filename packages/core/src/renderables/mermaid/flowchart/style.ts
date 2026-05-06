@@ -1,5 +1,5 @@
 import { ANSI } from "../../../ansi.js"
-import { RGBA } from "../../../lib/RGBA.js"
+import { RGBA, type ColorInput } from "../../../lib/RGBA.js"
 import { StyledText } from "../../../lib/styled-text.js"
 import type { TextChunk } from "../../../text-buffer.js"
 import type { DiagramCanvas } from "../../diagram-canvas.js"
@@ -16,21 +16,45 @@ import {
   type DiagramRgb,
 } from "../../diagram-style.js"
 
-export type FlowchartBaseCellStyle = "node" | "database" | "edge" | "label" | "group"
+export type FlowchartBaseCellStyle = "node" | "activeNode" | "database" | "edge" | "activeEdge" | "label" | "group"
 export type FlowchartNodeEdgeFadeStyle = `nodeEdgeFade${DiagramFadeStep}`
 export type FlowchartDatabaseEdgeFadeStyle = `databaseEdgeFade${DiagramFadeStep}`
 export type FlowchartEdgeFadeStyle = FlowchartNodeEdgeFadeStyle | FlowchartDatabaseEdgeFadeStyle
 export type FlowchartEdgePulseFadeStyle = `edgePulseFade${DiagramFadeStep}`
 export type FlowchartEdgePulseStyle = "edgePulse" | FlowchartEdgePulseFadeStyle
 export type FlowchartCellStyle = FlowchartBaseCellStyle | FlowchartEdgeFadeStyle | FlowchartEdgePulseStyle
-export type FlowchartGrid = DiagramCanvas<FlowchartCellStyle>
+export interface FlowchartCellMetadata {
+  nodeId?: string
+  bgNodeId?: string
+}
+export type FlowchartGrid = DiagramCanvas<FlowchartCellStyle, FlowchartCellMetadata>
 export type FlowchartStyleColors = Required<Record<FlowchartCellStyle, RGBA>>
 export type FlowchartDiagramAnsiTheme = Partial<Record<FlowchartCellStyle, string>>
+export type FlowchartNodeColorMap = ReadonlyMap<string, RGBA>
+export type FlowchartNodeColors = Record<string, ColorInput | undefined> | ReadonlyMap<string, ColorInput | undefined>
+
+const FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR = "::cell:"
+const FLOWCHART_NODE_COLOR_LEVEL_COUNT = 6
+
+function normalizeFlowchartNodeColorLevel(level: number): number {
+  return Math.max(0, Math.min(FLOWCHART_NODE_COLOR_LEVEL_COUNT - 1, Math.round(level)))
+}
+
+export function flowchartNodeColorKey(nodeId: string, level: number): string {
+  return `${nodeId}${FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR}${normalizeFlowchartNodeColorLevel(level)}`
+}
+
+function baseFlowchartNodeColorKey(nodeId: string): string {
+  const index = nodeId.lastIndexOf(FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR)
+  return index === -1 ? nodeId : nodeId.slice(0, index)
+}
 
 export const DEFAULT_THEME_RGB = {
   node: [228, 239, 232],
+  activeNode: [221, 255, 246],
   database: [228, 239, 232],
   edge: [134, 225, 200],
+  activeEdge: [221, 255, 246],
   edgePulse: [221, 255, 246],
   label: [134, 225, 200],
   group: [76, 99, 89],
@@ -50,8 +74,10 @@ export const EDGE_PULSE_STYLES = [
 
 const DEFAULT_ANSI_THEME: Required<Record<FlowchartCellStyle, string>> = {
   node: ansiFg(DEFAULT_THEME_RGB.node),
+  activeNode: ansiFg(DEFAULT_THEME_RGB.activeNode),
   database: ansiFg(DEFAULT_THEME_RGB.database),
   edge: ansiFg(DEFAULT_THEME_RGB.edge),
+  activeEdge: ansiFg(DEFAULT_THEME_RGB.activeEdge),
   label: ansiFg(DEFAULT_THEME_RGB.label),
   group: ansiFg(DEFAULT_THEME_RGB.group),
   ...createAnsiRampTheme(NODE_EDGE_FADE_STYLES, DEFAULT_THEME_RGB.node, DEFAULT_THEME_RGB.edge),
@@ -64,21 +90,38 @@ const DEFAULT_ANSI_THEME: Required<Record<FlowchartCellStyle, string>> = {
   ),
 }
 
-function styleColor(style: FlowchartCellStyle | undefined, colors: FlowchartStyleColors): RGBA | undefined {
-  return style ? colors[style] : undefined
+function nodeMappedColor(colors: FlowchartNodeColorMap | undefined, nodeId: string | undefined): RGBA | undefined {
+  return nodeId ? (colors?.get(nodeId) ?? colors?.get(baseFlowchartNodeColorKey(nodeId))) : undefined
+}
+
+function styleColor(
+  style: FlowchartCellStyle | undefined,
+  colors: FlowchartStyleColors,
+  nodeColors?: FlowchartNodeColorMap,
+  nodeId?: string,
+): RGBA | undefined {
+  return nodeMappedColor(nodeColors, nodeId) ?? (style ? colors[style] : undefined)
+}
+
+function styleBgColor(nodeBgColors: FlowchartNodeColorMap | undefined, nodeId: string | undefined): RGBA | undefined {
+  return nodeMappedColor(nodeBgColors, nodeId)
 }
 
 export function resolveFlowchartStyleColors(
   colors: Partial<Record<FlowchartCellStyle, RGBA | undefined>> = {},
 ): FlowchartStyleColors {
   const node = colors.node ?? rgba(DEFAULT_THEME_RGB.node)
+  const activeNode = colors.activeNode ?? rgba(DEFAULT_THEME_RGB.activeNode)
   const database = colors.database ?? rgba(DEFAULT_THEME_RGB.database)
   const edge = colors.edge ?? rgba(DEFAULT_THEME_RGB.edge)
+  const activeEdge = colors.activeEdge ?? rgba(DEFAULT_THEME_RGB.activeEdge)
   const edgePulse = colors.edgePulse ?? brightenColor(edge, 0.65) ?? rgba(DEFAULT_THEME_RGB.edgePulse)
   return {
     node,
+    activeNode,
     database,
     edge,
+    activeEdge,
     edgePulse,
     label: colors.label ?? rgba(DEFAULT_THEME_RGB.label),
     group: colors.group ?? rgba(DEFAULT_THEME_RGB.group),
@@ -88,14 +131,28 @@ export function resolveFlowchartStyleColors(
   }
 }
 
-export function renderGridStyledText(grid: FlowchartGrid, colors: FlowchartStyleColors): StyledText {
+export function renderGridStyledText(
+  grid: FlowchartGrid,
+  colors: FlowchartStyleColors,
+  nodeColors?: FlowchartNodeColorMap,
+  nodeBgColors?: FlowchartNodeColorMap,
+): StyledText {
   const chunks: TextChunk[] = []
+  const useNodeRuns = Boolean(nodeColors?.size || nodeBgColors?.size)
   grid.forEachRun(
     (run) => {
-      chunks.push({ __isChunk: true, text: run.text, fg: styleColor(run.style, colors) })
+      chunks.push({
+        __isChunk: true,
+        text: run.text,
+        fg: styleColor(run.style, colors, nodeColors, run.cell.nodeId),
+        bg: styleBgColor(nodeBgColors, run.cell.bgNodeId),
+      })
     },
     () => chunks.push({ __isChunk: true, text: "\n" }),
-    { trimBottom: true },
+    {
+      trimBottom: true,
+      key: (cell) => (useNodeRuns ? [cell.style, cell.nodeId, cell.bgNodeId] : [cell.style]),
+    },
   )
   return new StyledText(chunks)
 }

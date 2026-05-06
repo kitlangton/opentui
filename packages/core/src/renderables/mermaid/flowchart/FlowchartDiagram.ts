@@ -1,5 +1,6 @@
 export type {
   FlowchartDiagram,
+  FlowchartActiveEdgeSelection,
   FlowchartDirection,
   FlowchartEdge,
   FlowchartEdgeDirection,
@@ -12,7 +13,8 @@ export type {
   FlowchartSubgraphBounds,
 } from "./types.js"
 export type { FlowchartDiagramAnsiOptions, FlowchartDiagramOptions, FlowchartDiagramRenderOptions } from "./options.js"
-export type { FlowchartDiagramAnsiTheme } from "./style.js"
+export type { FlowchartDiagramAnsiTheme, FlowchartNodeColors } from "./style.js"
+export { flowchartNodeColorKey } from "./style.js"
 export { isMermaidFlowchartDiagram, parseMermaidFlowchartDiagram } from "./parser.js"
 export { renderFlowchartDiagram, renderFlowchartDiagramAnsi } from "./render.js"
 export { FlowchartDiagramRenderable } from "./renderable.js"

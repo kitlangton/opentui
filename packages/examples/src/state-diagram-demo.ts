@@ -8,12 +8,19 @@ import {
   renderStateDiagramAnsi,
   RGBA,
   stateDiagramStateColorKey,
-  type ColorInput,
   type StateDiagram,
   type StateDiagramActiveTransition,
   StateDiagramRenderable,
   TextRenderable,
 } from "@opentui/core"
+import {
+  animationNow,
+  clamp01,
+  diagramNodeActivationColors,
+  diagramNodeBackgroundFlashColors,
+  easeOutCubic,
+  mixColor,
+} from "./lib/diagram-animation.js"
 import { setupCommonDemoKeys } from "./lib/standalone-keys.js"
 
 export const REQUEST_STATE_DIAGRAM = `stateDiagram-v2
@@ -242,7 +249,6 @@ const EDGE_REVEAL_MS = 620
 const FOLLOW_PULSE_MS = 620
 const STATE_COLOR_FADE_MS = 840
 const ANIMATION_INTERVAL_MS = 33
-const STATE_GLOW_LEVELS = [0, 1, 2, 3, 4, 5] as const
 
 function exampleSize(example: StateDiagramExample): { width: number; height: number } {
   example.size ??= renderedSize(example.content)
@@ -293,40 +299,6 @@ function applyTheme(renderer: CliRenderer): void {
   centerDiagram()
 }
 
-function animationNow(): number {
-  return performance.now()
-}
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value))
-}
-
-function easeOutCubic(value: number): number {
-  const inverse = 1 - clamp01(value)
-  return 1 - inverse * inverse * inverse
-}
-
-function easeInOutCubic(value: number): number {
-  const clamped = clamp01(value)
-  return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2
-}
-
-function mixChannel(left: number, right: number, amount: number): number {
-  return Math.round(left + (right - left) * amount)
-}
-
-function mixColor(left: ColorInput, right: ColorInput, amount: number): RGBA {
-  const leftRgb = parseColor(left).toInts()
-  const rightRgb = parseColor(right).toInts()
-  const clampedAmount = clamp01(amount)
-  return RGBA.fromInts(
-    mixChannel(leftRgb[0], rightRgb[0], clampedAmount),
-    mixChannel(leftRgb[1], rightRgb[1], clampedAmount),
-    mixChannel(leftRgb[2], rightRgb[2], clampedAmount),
-    mixChannel(leftRgb[3], rightRgb[3], clampedAmount),
-  )
-}
-
 function parsedThemeColors(theme: StateDiagramTheme): ParsedThemeColors {
   const cached = parsedThemeColorCache.get(theme)
   if (cached) return cached
@@ -352,7 +324,7 @@ function animatedActiveTransitionColor(theme: StateDiagramTheme, now = animation
   return pulseAmount > 0 ? mixColor(baseColor, colors.activeState, pulseAmount) : baseColor
 }
 
-function stateNeutralColor(colors: ParsedThemeColors, stateId: string | undefined): ColorInput {
+function stateNeutralColor(colors: ParsedThemeColors, stateId: string | undefined): RGBA {
   const state = parsedDiagram.states.find((candidate) => candidate.id === stateId)
   if (state?.kind === "start" || state?.kind === "choice") return colors.transition
   if (state?.kind === "end") return colors.end
@@ -374,22 +346,16 @@ function animatedStateColors(theme: StateDiagramTheme, now = animationNow()): Re
 
   const incomingNeutral = stateNeutralColor(colors, activeState)
   const outgoingNeutral = stateNeutralColor(colors, previousActiveState)
-  const incomingActivation = easeOutCubic(progress / 0.18)
-  const incomingSettle = 1 - easeOutCubic(progress)
-  const incomingFlash = mixColor(colors.activeState, colors.pulse, 0.86)
-  const stateColors: Record<string, RGBA> = {
-    [previousActiveState]: mixColor(colors.activeState, outgoingNeutral, easeOutCubic(progress)),
-  }
-
-  for (const level of STATE_GLOW_LEVELS) {
-    const intensity = level / (STATE_GLOW_LEVELS.length - 1)
-    const activationAmount = incomingActivation * (0.18 + intensity * 0.82)
-    const flashAmount = incomingSettle * Math.pow(intensity, 1.45) * 0.88
-    const incomingSettled = mixColor(incomingNeutral, colors.activeState, activationAmount)
-    stateColors[stateDiagramStateColorKey(activeState, level)] = mixColor(incomingSettled, incomingFlash, flashAmount)
-  }
-
-  return stateColors
+  return diagramNodeActivationColors({
+    activeId: activeState,
+    previousId: previousActiveState,
+    progress,
+    activeColor: colors.activeState,
+    activeNeutralColor: incomingNeutral,
+    previousNeutralColor: outgoingNeutral,
+    pulseColor: colors.pulse,
+    keyForLevel: stateDiagramStateColorKey,
+  })
 }
 
 function activeStateBackgroundColors(theme: StateDiagramTheme, now = animationNow()): Record<string, RGBA> | undefined {
@@ -400,18 +366,13 @@ function activeStateBackgroundColors(theme: StateDiagramTheme, now = animationNo
   const progress = clamp01((now - stateTransitionStartedAt) / STATE_COLOR_FADE_MS)
   if (progress >= 1) return undefined
 
-  const stateBgColors: Record<string, RGBA> = {}
-  const fadeAmount = 1 - easeOutCubic(progress)
-  for (const level of STATE_GLOW_LEVELS) {
-    const intensity = level / (STATE_GLOW_LEVELS.length - 1)
-    stateBgColors[stateDiagramStateColorKey(activeState, level)] = mixColor(
-      colors.background,
-      colors.pulse,
-      Math.pow(intensity, 1.7) * 0.24 * fadeAmount,
-    )
-  }
-
-  return stateBgColors
+  return diagramNodeBackgroundFlashColors({
+    activeId: activeState,
+    progress,
+    backgroundColor: colors.background,
+    pulseColor: colors.pulse,
+    keyForLevel: stateDiagramStateColorKey,
+  })
 }
 
 function applyAnimatedColors(now = animationNow()): void {

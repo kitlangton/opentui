@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { parseColor } from "../lib/RGBA.js"
 import { createTestRenderer } from "../testing/test-renderer.js"
-import { blendColor, DIAGRAM_FADE_STEPS } from "./diagram-style.js"
+import { blendColor, colorsEqual, DIAGRAM_FADE_STEPS } from "./diagram-style.js"
 import { renderFlowchartGrid } from "./mermaid/flowchart/drawing.js"
+import { flowchartNodeColorKey, renderGridStyledText, resolveFlowchartStyleColors } from "./mermaid/flowchart/style.js"
 import {
   DEFAULT_MIN_RANK_GAP,
   DEFAULT_MIN_VERTICAL_RANK_GAP,
@@ -32,6 +33,23 @@ function routeRunsAlongHorizontalBorder(
     const to = route.points[index]!
     if (from.y !== to.y || !borderYs.has(from.y)) continue
     if (Math.max(from.x, to.x) >= left && Math.min(from.x, to.x) <= right) return true
+  }
+  return false
+}
+
+function routeRunsAlongVerticalBorder(
+  route: { points: readonly { x: number; y: number }[] },
+  bounds: { left: number; top: number; width: number; height: number },
+): boolean {
+  const borderXs = new Set([bounds.left, bounds.left + bounds.width - 1])
+  const top = bounds.top
+  const bottom = bounds.top + bounds.height - 1
+
+  for (let index = 1; index < route.points.length; index++) {
+    const from = route.points[index - 1]!
+    const to = route.points[index]!
+    if (from.x !== to.x || !borderXs.has(from.x)) continue
+    if (Math.max(from.y, to.y) >= top && Math.min(from.y, to.y) <= bottom) return true
   }
   return false
 }
@@ -232,6 +250,23 @@ graph LR
     expect(output.split("\n").find((line) => line.includes("API") && line.includes("DB"))).not.toContain("┼")
   })
 
+  test("draws transition lines over subgraph frames without joining them", () => {
+    const output = renderFlowchartDiagram(`
+flowchart TD
+  subgraph Verse [verse]
+    direction LR
+    A[A] --> B[B]
+    C[C] --> D[D]
+  end
+  B --> Join
+  D --> Join
+`)
+    const crossingLines = output.split("\n").filter((line) => line.includes("Join") || line.includes("├"))
+
+    expect(output).toContain(" verse ")
+    expect(crossingLines.join("\n")).not.toContain("┼")
+  })
+
   test("lays out subgraph-local directions independently from the outer flow", () => {
     const layout = layoutFlowchartDiagram(`
 flowchart TD
@@ -293,6 +328,79 @@ flowchart TD
 
     expect(output).toContain(" remember to ")
     expect(output).not.toContain("rememb▼r")
+  })
+
+  test("keeps local LR branch joins compact when they feed a vertical stage", () => {
+    const content = `
+flowchart TD
+  Start[Start] --> A
+  subgraph Verse [verse]
+    direction LR
+    A[A]
+    B[B]
+    C[C]
+    D[D]
+    E[E]
+    F[F]
+    G[G]
+    A --> B
+    B --> C
+    A --> D
+    D --> E
+    A --> F
+    F --> G
+  end
+  C --> Join
+  E --> Join
+  G --> Join
+`
+    const layout = layoutFlowchartDiagram(content)
+    const b = layout.bounds.get("B")!
+    const c = layout.bounds.get("C")!
+    const d = layout.bounds.get("D")!
+    const e = layout.bounds.get("E")!
+    const verse = layout.subgraphBounds.get("Verse")!
+    const joinRoutes = layout.routes.filter((route) => route.edge.to === "Join")
+    const output = renderFlowchartDiagram(content)
+
+    expect(c.left).toBeGreaterThan(b.left)
+    expect(e.left).toBeGreaterThan(d.left)
+    expect(new Set(joinRoutes.map((route) => route.points[1]!.x)).size).toBe(1)
+    expect(Math.max(...joinRoutes.flatMap((route) => route.points.map((point) => point.x)))).toBeGreaterThan(
+      verse.left + verse.width,
+    )
+    expect(output).not.toContain("││")
+  })
+
+  test("routes transitions between local LR subgraphs outside their frames", () => {
+    const layout = layoutFlowchartDiagram(`
+flowchart TD
+  subgraph First [first]
+    direction LR
+    A[A]
+    B[B]
+    C[C]
+    A --> B
+    A --> C
+  end
+  B --> D
+  C --> D
+  subgraph Second [second]
+    direction LR
+    D[D] --> E[E]
+  end
+`)
+    const first = layout.subgraphBounds.get("First")!
+    const second = layout.subgraphBounds.get("Second")!
+    const routes = layout.routes.filter((route) => route.edge.to === "D")
+
+    expect(routes.length).toBe(2)
+    for (const route of routes) {
+      expect(routeRunsAlongHorizontalBorder(route, first)).toBe(false)
+      expect(routeRunsAlongVerticalBorder(route, first)).toBe(false)
+      expect(routeRunsAlongHorizontalBorder(route, second)).toBe(false)
+      expect(routeRunsAlongVerticalBorder(route, second)).toBe(false)
+    }
   })
 
   test("keeps grouped fan routes orthogonal after subgraph translation", () => {
@@ -481,6 +589,67 @@ flowchart LR
 
     expect(output).toContain("[pulse]")
     expect(output).toContain("[pulse-fade-")
+  })
+
+  test("renders active flowchart nodes and selected connections", () => {
+    const output = renderFlowchartDiagramAnsi(
+      `
+flowchart LR
+  A[A] --> B[B]
+`,
+      {
+        activeNode: "A",
+        activeEdge: { from: "A", to: "B" },
+        theme: { activeNode: "[active-node]", activeEdge: "[active-edge]" },
+      },
+    )
+
+    expect(output).toContain("[active-node]")
+    expect(output).toContain("[active-edge]")
+  })
+
+  test("applies flowchart node foreground and background color maps", () => {
+    const grid = renderFlowchartGrid("flowchart LR\n  A[Alpha] --> B[Beta]")
+    const fg = parseColor("#ff0000")
+    const bg = parseColor("#001122")
+    const styled = renderGridStyledText(
+      grid,
+      resolveFlowchartStyleColors(),
+      new Map([["A", fg]]),
+      new Map([[flowchartNodeColorKey("A", 1), bg]]),
+    )
+
+    expect(styled.chunks.some((chunk) => chunk.text === "A" && colorsEqual(chunk.fg, fg))).toBe(true)
+    expect(styled.chunks.some((chunk) => colorsEqual(chunk.bg, bg))).toBe(true)
+  })
+
+  test("navigates selected flowchart connections from the renderable", async () => {
+    const { renderer } = await createTestRenderer({ width: 80, height: 12 })
+    const diagram = new FlowchartDiagramRenderable(renderer, {
+      content: `flowchart LR
+  A[A] --> B[B]
+  A --> C[C]
+  B --> D[D]`,
+    })
+
+    expect(diagram.activateFirstNode()).toBe("A")
+    expect(diagram.selectedConnection).toEqual({ from: "A", to: "B", index: 0 })
+    expect(diagram.selectNextConnection()).toEqual({ from: "A", to: "C", index: 1 })
+    const traversed = diagram.selectedConnection
+    expect(diagram.followSelectedConnection()).toBe("C")
+    expect(diagram.activeNode).toBe("C")
+    expect(diagram.selectedConnection).toBeUndefined()
+    diagram.activeEdge = traversed
+    diagram.activeEdgeProgress = 0.5
+    expect(diagram.activeEdge).toEqual({ from: "A", to: "C", index: 1 })
+    expect(diagram.activeEdgeProgress).toBe(0.5)
+    diagram.activeEdge = undefined
+
+    diagram.content = "flowchart LR\n  X[X] --> Y[Y]"
+    expect(diagram.activeNode).toBeUndefined()
+    expect(diagram.activateFirstNode()).toBe("X")
+
+    renderer.destroy()
   })
 
   test("lets pulses start at source connectors", () => {

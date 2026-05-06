@@ -129,9 +129,12 @@ function drawDatabaseNode(grid: FlowchartGrid, bounds: FlowchartNodeBounds, char
   }
 }
 
-function drawSubgraph(grid: FlowchartGrid, bounds: FlowchartSubgraphBounds, borderStyle: BorderStyle): void {
+function drawSubgraphFrame(grid: FlowchartGrid, bounds: FlowchartSubgraphBounds, borderStyle: BorderStyle): void {
   const chars = BorderChars[borderStyle]
   drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, "group"))
+}
+
+function drawSubgraphLabel(grid: FlowchartGrid, bounds: FlowchartSubgraphBounds): void {
   if (bounds.label) {
     const labelY = bounds.labelSide === "top" ? bounds.top : bounds.top + bounds.height - 1
     grid.setText(bounds.left + 2, labelY, ` ${bounds.label} `, "group")
@@ -192,6 +195,8 @@ function setFlowchartPulseCell(
 
 function drawEdgePulse(
   grid: FlowchartGrid,
+  diagram: FlowchartDiagram,
+  bounds: Map<string, FlowchartNodeBounds>,
   routes: readonly FlowchartEdgeRoute[],
   pulseFrame: number | undefined,
   pulseProgress: number | undefined,
@@ -199,7 +204,14 @@ function drawEdgePulse(
   pulseGap: number,
 ): void {
   if (pulseFrame === undefined && pulseProgress === undefined) return
-  const paths = routes.map((route) => orthogonalPathPoints(route.points))
+  const paths = routes.map((route) => {
+    const from = bounds.get(route.edge.from)
+    const sourcePoint = route.points[0]
+    if (!from || !sourcePoint) return orthogonalPathPoints(route.points)
+
+    const connector = flowchartSourceConnector(from, sourcePoint)
+    return orthogonalPathPoints([{ x: connector.x, y: connector.y }, ...route.points])
+  })
   const pathLength = paths.reduce((total, path) => total + path.length, 0)
   if (pathLength === 0) return
 
@@ -295,7 +307,7 @@ export function renderFlowchartGrid(content: string, options: FlowchartDiagramRe
 
   for (const subgraph of diagram.subgraphs ?? []) {
     const bound = subgraphBounds.get(subgraph.id)
-    if (bound) drawSubgraph(grid, bound, borderStyle)
+    if (bound) drawSubgraphFrame(grid, bound, borderStyle)
   }
   for (const route of routes) drawRoutedEdge(grid, route)
   for (const node of diagram.nodes) {
@@ -303,7 +315,11 @@ export function renderFlowchartGrid(content: string, options: FlowchartDiagramRe
     if (bound) drawNode(grid, node, bound, borderStyle)
   }
   drawSourceConnectors(grid, diagram, bounds, routes)
-  drawEdgePulse(grid, routes, pulseFrame, pulseProgress, pulseLength, pulseGap)
+  drawEdgePulse(grid, diagram, bounds, routes, pulseFrame, pulseProgress, pulseLength, pulseGap)
+  for (const subgraph of diagram.subgraphs ?? []) {
+    const bound = subgraphBounds.get(subgraph.id)
+    if (bound) drawSubgraphLabel(grid, bound)
+  }
 
   return grid
 }

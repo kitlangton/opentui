@@ -22,6 +22,7 @@ export interface FlowchartSubgraph {
   label: string
   nodeIds: string[]
   parentId?: string
+  direction?: FlowchartDirection
 }
 
 export interface FlowchartDiagram {

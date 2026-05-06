@@ -3,7 +3,11 @@ import { parseColor } from "../lib/RGBA.js"
 import { createTestRenderer } from "../testing/test-renderer.js"
 import { blendColor, DIAGRAM_FADE_STEPS } from "./diagram-style.js"
 import { renderFlowchartGrid } from "./mermaid/flowchart/drawing.js"
-import { DEFAULT_MIN_RANK_GAP, layoutFlowchartDiagram } from "./mermaid/flowchart/layout.js"
+import {
+  DEFAULT_MIN_RANK_GAP,
+  DEFAULT_MIN_VERTICAL_RANK_GAP,
+  layoutFlowchartDiagram,
+} from "./mermaid/flowchart/layout.js"
 import {
   FlowchartDiagramRenderable,
   parseMermaidFlowchartDiagram,
@@ -13,6 +17,23 @@ import {
 
 function flowchartTextSize(content: string): { width: number; height: number } {
   return renderFlowchartGrid(content).getTextSize({ trimBottom: true })
+}
+
+function routeRunsAlongHorizontalBorder(
+  route: { points: readonly { x: number; y: number }[] },
+  bounds: { left: number; top: number; width: number; height: number },
+): boolean {
+  const borderYs = new Set([bounds.top, bounds.top + bounds.height - 1])
+  const left = bounds.left
+  const right = bounds.left + bounds.width - 1
+
+  for (let index = 1; index < route.points.length; index++) {
+    const from = route.points[index - 1]!
+    const to = route.points[index]!
+    if (from.y !== to.y || !borderYs.has(from.y)) continue
+    if (Math.max(from.x, to.x) >= left && Math.min(from.x, to.x) <= right) return true
+  }
+  return false
 }
 
 describe("FlowchartDiagram", () => {
@@ -55,6 +76,20 @@ flowchart LR
     expect(diagram.subgraphs).toEqual([
       { id: "Web", label: "Web App", nodeIds: ["UI", "API"], parentId: undefined },
       { id: "Platform", label: "Platform", nodeIds: ["API", "DB"], parentId: undefined },
+    ])
+  })
+
+  test("parses Mermaid subgraph-local directions", () => {
+    const diagram = parseMermaidFlowchartDiagram(`
+flowchart TD
+  subgraph Verse
+    direction LR
+    A[A] --> B[B]
+  end
+`)
+
+    expect(diagram.subgraphs).toEqual([
+      { id: "Verse", label: "Verse", nodeIds: ["A", "B"], parentId: undefined, direction: "LR" },
     ])
   })
 
@@ -195,6 +230,69 @@ graph LR
     expect(output).toContain("DB")
     expect(output).toContain("╭─ Web App ")
     expect(output.split("\n").find((line) => line.includes("API") && line.includes("DB"))).not.toContain("┼")
+  })
+
+  test("lays out subgraph-local directions independently from the outer flow", () => {
+    const layout = layoutFlowchartDiagram(`
+flowchart TD
+  Start[Start] --> A[A]
+  subgraph Steps
+    direction LR
+    A --> B[B]
+    B --> C[C]
+  end
+  C --> Done[Done]
+`)
+    const a = layout.bounds.get("A")!
+    const b = layout.bounds.get("B")!
+    const c = layout.bounds.get("C")!
+    const done = layout.bounds.get("Done")!
+    const route = layout.routes.find((candidate) => candidate.edge.from === "A" && candidate.edge.to === "B")!
+
+    expect(a.centerY).toBe(b.centerY)
+    expect(b.left).toBeGreaterThan(a.left)
+    expect(c.left).toBeGreaterThan(b.left)
+    expect(done.top).toBeGreaterThan(c.top)
+    expect(route.points[0]!.y).toBe(route.points[route.points.length - 1]!.y)
+  })
+
+  test("compacts stacked subgraph-local direction rows", () => {
+    const layout = layoutFlowchartDiagram(`
+flowchart TD
+  Start[Start] --> A
+  subgraph First [first row]
+    direction LR
+    A[A] --> B[B]
+  end
+  B --> C
+  subgraph Second [second row]
+    direction LR
+    C[C] --> D[D]
+  end
+  D --> Done[Done]
+`)
+    const first = layout.subgraphBounds.get("First")!
+    const second = layout.subgraphBounds.get("Second")!
+    const betweenRows = layout.routes.find((route) => route.edge.from === "B" && route.edge.to === "C")!
+
+    expect(second.top).toBeGreaterThan(first.top)
+    expect(second.top - (first.top + first.height)).toBeLessThanOrEqual(DEFAULT_MIN_VERTICAL_RANK_GAP)
+    expect(routeRunsAlongHorizontalBorder(betweenRows, first)).toBe(false)
+    expect(routeRunsAlongHorizontalBorder(betweenRows, second)).toBe(false)
+  })
+
+  test("keeps subgraph labels readable when routes enter through the frame", () => {
+    const output = renderFlowchartDiagram(`
+flowchart TD
+  Start[Start] --> Remember
+  subgraph Remembering [remember to]
+    direction LR
+    Remember[remember to] --> Heart[Heart]
+  end
+`)
+
+    expect(output).toContain(" remember to ")
+    expect(output).not.toContain("rememb▼r")
   })
 
   test("keeps grouped fan routes orthogonal after subgraph translation", () => {
@@ -383,6 +481,13 @@ flowchart LR
 
     expect(output).toContain("[pulse]")
     expect(output).toContain("[pulse-fade-")
+  })
+
+  test("lets pulses start at source connectors", () => {
+    const grid = renderFlowchartGrid("flowchart TD\n  A[A] ==> B[B]", { pulseProgress: 0, pulseLength: 5 })
+    const sourceConnector = [...grid.rows.flatMap((row) => row)].find((cell) => cell?.char === "┬")
+
+    expect(sourceConnector?.style).toBe("edgePulseFade1")
   })
 
   test("applies renderable pulse color separately from edge color", async () => {

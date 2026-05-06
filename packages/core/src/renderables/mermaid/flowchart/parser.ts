@@ -167,9 +167,13 @@ export function parseMermaidFlowchartDiagram(content: string): FlowchartDiagram 
       continue
     }
 
-    if (SUBGRAPH_DIRECTION_RE.test(line)) continue
-
     const currentSubgraph = subgraphStack[subgraphStack.length - 1]
+
+    const subgraphDirection = line.match(SUBGRAPH_DIRECTION_RE)
+    if (subgraphDirection) {
+      if (currentSubgraph) currentSubgraph.direction = normalizeDirection(subgraphDirection[1])
+      continue
+    }
 
     const pipeEdge = line.match(/^(.+?)\s*(-->|==>|-\.->)\s*(?:\|([^|]*)\|\s*)?(.+)$/)
     const textEdge = line.match(/^(.+?)\s*(--|==|-\.)\s+(.+?)\s+(-->|==>|\.->|-\.->)\s*(.+)$/)

@@ -122,6 +122,24 @@ describe("flowchart routing", () => {
     ])
   })
 
+  test("routes self edges below the source node", () => {
+    const edge = { from: "A", to: "A", label: "" }
+    const routes = routeFlowchartEdges(diagram("TD", [edge]), new Map([["A", bounds("A", 0, 0)]]))
+
+    expect(routes).toEqual([
+      {
+        edge,
+        points: [
+          { x: 5, y: 1 },
+          { x: 8, y: 1 },
+          { x: 8, y: 4 },
+          { x: 2, y: 4 },
+          { x: 2, y: 3 },
+        ],
+      },
+    ])
+  })
+
   test("routes same-column horizontal-flow edges through vertical ports", () => {
     const edge = { from: "A", to: "B", label: "rollback" }
     const routes = routeFlowchartEdges(

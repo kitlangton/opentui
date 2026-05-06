@@ -98,7 +98,16 @@ function horizontalEdgePath(
   return orthogonalPath(boundsSidePoint(from, startSide), boundsSidePoint(to, oppositeSide(startSide)))
 }
 
+function selfEdgePath(bounds: FlowchartNodeBounds): FlowchartPoint[] {
+  const start = boundsSidePoint(bounds, "right")
+  const end = boundsSidePoint(bounds, "bottom")
+  const rightLaneX = bounds.left + bounds.width + BUS_CLEARANCE
+  const bottomLaneY = bounds.top + bounds.height + 1
+  return [start, { x: rightLaneX, y: start.y }, { x: rightLaneX, y: bottomLaneY }, { x: end.x, y: bottomLaneY }, end]
+}
+
 function edgePath(from: FlowchartNodeBounds, to: FlowchartNodeBounds, direction: FlowchartDirection): FlowchartPoint[] {
+  if (from.id === to.id) return selfEdgePath(from)
   if (!isVerticalDirection(direction)) return horizontalEdgePath(from, to, direction)
   return isVerticalBackEdge(from, to, direction) ? verticalBackEdgePath(from, to) : verticalForwardEdgePath(from, to)
 }
@@ -224,13 +233,17 @@ function routeHorizontalFanIn(
 export function routeFlowchartEdges(
   diagram: FlowchartDiagram,
   bounds: Map<string, FlowchartNodeBounds>,
+  directionForEdge: (edge: FlowchartEdge) => FlowchartDirection = () => diagram.direction,
 ): FlowchartEdgeRoute[] {
   const handled = new Set<FlowchartEdge>()
   const routes: FlowchartEdgeRoute[] = []
-  if (diagram.direction === "LR" || diagram.direction === "RL") {
-    const records = horizontalForwardRecords(diagram.edges, bounds, diagram.direction)
-    routeHorizontalFanOut(records, diagram.direction, handled, routes)
-    routeHorizontalFanIn(records, diagram.direction, handled, routes)
+
+  for (const direction of ["LR", "RL"] satisfies FlowchartDirection[]) {
+    const horizontalEdges = diagram.edges.filter((edge) => directionForEdge(edge) === direction)
+    if (horizontalEdges.length === 0) continue
+    const records = horizontalForwardRecords(horizontalEdges, bounds, direction)
+    routeHorizontalFanOut(records, direction, handled, routes)
+    routeHorizontalFanIn(records, direction, handled, routes)
   }
 
   for (const edge of diagram.edges) {
@@ -238,7 +251,7 @@ export function routeFlowchartEdges(
     const from = bounds.get(edge.from)
     const to = bounds.get(edge.to)
     if (!from || !to) continue
-    routes.push({ edge, points: edgePath(from, to, diagram.direction) })
+    routes.push({ edge, points: edgePath(from, to, directionForEdge(edge)) })
   }
   return routes
 }

@@ -51,6 +51,34 @@ export const RELEASE_FLOWCHART = `flowchart LR
   end
   Gate -->|notes| Notes([Notes])`
 
+export const HEY_JUDE_FLOWCHART = `flowchart TD
+  Title[hey Jude] --> Dont
+
+  subgraph Verse [don't]
+    direction LR
+    Dont[don't] --> Trouble[make it bad<br/>be afraid<br/>let me down]
+    Trouble --> Turn[take a sad song<br/>go out and get her<br/>now go get her]
+  end
+
+  Turn --> Remember
+
+  subgraph Remembering [remember to]
+    direction LR
+    Remember[remember to] --> LetHer[let her into your heart<br/>let her under your skin]
+  end
+
+  LetHer --> ThenYou
+
+  subgraph Bridge [then you]
+    direction LR
+    ThenYou[then you] --> Begin[can start<br/>begin]
+    Begin --> MakeBetter[to make it better]
+  end
+
+  MakeBetter --> Better[better better better better waaaaaa]
+  Better --> Na[na]
+  Na --> Na`
+
 interface FlowchartExample {
   title: string
   content: string
@@ -86,6 +114,7 @@ const EXAMPLES: FlowchartExample[] = [
   { title: "Checkout", content: CHECKOUT_FLOWCHART },
   { title: "Support Routing", content: SUPPORT_FLOWCHART },
   { title: "Release Gate", content: RELEASE_FLOWCHART },
+  { title: "Hey Jude", content: HEY_JUDE_FLOWCHART },
 ]
 
 const THEMES: FlowchartTheme[] = [

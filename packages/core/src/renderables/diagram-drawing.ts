@@ -10,7 +10,60 @@ import {
 export type DiagramLineCornerStyle = "square" | "rounded"
 export type DiagramArrowHeadStyle = "filled" | "line"
 
+export interface DiagramDiamondCharacters {
+  topLeft: string
+  topRight: string
+  upperLeft: string
+  upperLeftJoin: string
+  upperRightJoin: string
+  upperRight: string
+  vertical: string
+  lowerLeft: string
+  lowerLeftJoin: string
+  lowerRightJoin: string
+  lowerRight: string
+  bottomLeft: string
+  bottomRight: string
+  horizontal: string
+}
+
 export const DIAGRAM_ARROW_HEADS = new Set(["▶", "◀", "▼", "▲", "→", "←", "↓", "↑"])
+
+export const DIAGRAM_DIAMOND_CHARS = {
+  topLeft: "╭",
+  topRight: "╮",
+  upperLeft: "╭",
+  upperLeftJoin: "╯",
+  upperRightJoin: "╰",
+  upperRight: "╮",
+  vertical: "│",
+  lowerLeft: "╰",
+  lowerLeftJoin: "╮",
+  lowerRightJoin: "╭",
+  lowerRight: "╯",
+  bottomLeft: "╰",
+  bottomRight: "╯",
+  horizontal: "─",
+} as const satisfies DiagramDiamondCharacters
+
+export function diagramDiamondCharactersFromBorder(chars: BorderCharacters): DiagramDiamondCharacters {
+  return {
+    topLeft: chars.topLeft,
+    topRight: chars.topRight,
+    upperLeft: chars.topLeft,
+    upperLeftJoin: chars.bottomRight,
+    upperRightJoin: chars.bottomLeft,
+    upperRight: chars.topRight,
+    vertical: chars.vertical,
+    lowerLeft: chars.bottomLeft,
+    lowerLeftJoin: chars.topRight,
+    lowerRightJoin: chars.topLeft,
+    lowerRight: chars.bottomRight,
+    bottomLeft: chars.bottomLeft,
+    bottomRight: chars.bottomRight,
+    horizontal: chars.horizontal,
+  }
+}
 
 function lineDirections(char: string): readonly DiagramDirection[] | undefined {
   switch (char) {
@@ -118,6 +171,47 @@ export function drawDiagramFrame(
     setCell(bounds.left, y, chars.vertical)
     setCell(bounds.left + bounds.width - 1, y, chars.vertical)
   }
+}
+
+export function drawDiagramDiamond(
+  bounds: DiagramBounds,
+  setCell: (x: number, y: number, char: string) => void,
+  chars: DiagramDiamondCharacters = DIAGRAM_DIAMOND_CHARS,
+): void {
+  const left = bounds.left
+  const right = bounds.left + bounds.width - 1
+  const top = bounds.top
+  const bottom = bounds.top + bounds.height - 1
+  const capInset = Math.min(2, Math.max(1, Math.floor((bounds.width - 1) / 2)))
+  const capLeft = left + capInset
+  const capRight = right - capInset
+
+  setCell(capLeft, top, chars.topLeft)
+  for (let x = capLeft + 1; x < capRight; x++) setCell(x, top, chars.horizontal)
+  setCell(capRight, top, chars.topRight)
+
+  setCell(left, top + 1, chars.upperLeft)
+  for (let x = left + 1; x < capLeft; x++) setCell(x, top + 1, chars.horizontal)
+  setCell(capLeft, top + 1, chars.upperLeftJoin)
+  setCell(capRight, top + 1, chars.upperRightJoin)
+  for (let x = capRight + 1; x < right; x++) setCell(x, top + 1, chars.horizontal)
+  setCell(right, top + 1, chars.upperRight)
+
+  for (let y = top + 2; y < bottom - 1; y++) {
+    setCell(left, y, chars.vertical)
+    setCell(right, y, chars.vertical)
+  }
+
+  setCell(left, bottom - 1, chars.lowerLeft)
+  for (let x = left + 1; x < capLeft; x++) setCell(x, bottom - 1, chars.horizontal)
+  setCell(capLeft, bottom - 1, chars.lowerLeftJoin)
+  setCell(capRight, bottom - 1, chars.lowerRightJoin)
+  for (let x = capRight + 1; x < right; x++) setCell(x, bottom - 1, chars.horizontal)
+  setCell(right, bottom - 1, chars.lowerRight)
+
+  setCell(capLeft, bottom, chars.bottomLeft)
+  for (let x = capLeft + 1; x < capRight; x++) setCell(x, bottom, chars.horizontal)
+  setCell(capRight, bottom, chars.bottomRight)
 }
 
 export function drawOrthogonalPath(

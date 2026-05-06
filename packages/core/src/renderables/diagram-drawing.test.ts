@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { BorderChars } from "../lib/border.js"
 import { DiagramCanvas } from "./diagram-canvas.js"
-import { diagramArrowHead, drawDiagramFrame, drawOrthogonalPath, mergeDiagramLineGlyph } from "./diagram-drawing.js"
+import {
+  diagramArrowHead,
+  drawDiagramDiamond,
+  drawDiagramFrame,
+  drawOrthogonalPath,
+  mergeDiagramLineGlyph,
+} from "./diagram-drawing.js"
 
 describe("diagram drawing", () => {
   test("merges line glyphs with square and rounded corners", () => {
@@ -20,6 +26,16 @@ describe("diagram drawing", () => {
     )
 
     expect(canvas.toString({ trimBottom: true })).toBe(" ╭────╮\n │    │\n │    │\n ╰────╯")
+  })
+
+  test("draws diamond frames through caller-provided cell writers", () => {
+    const canvas = new DiagramCanvas<"frame">(9, 5)
+    drawDiagramDiamond({ left: 0, top: 0, width: 9, height: 5, centerX: 4, centerY: 2 }, (x, y, char) =>
+      canvas.setCell(x, y, char, "frame"),
+    )
+
+    expect(canvas.toString({ trimBottom: true })).toBe("  ╭───╮\n╭─╯   ╰─╮\n│       │\n╰─╮   ╭─╯\n  ╰───╯")
+    expect(canvas.toString()).not.toMatch(/[╱╲\\/]/)
   })
 
   test("draws orthogonal paths with selected corner style", () => {

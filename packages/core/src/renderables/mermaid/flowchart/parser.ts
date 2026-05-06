@@ -9,9 +9,10 @@ const SUBGRAPH_DIRECTION_RE = /^direction\s+(TB|TD|BT|LR|RL)$/i
 const DATABASE_NODE_RE = new RegExp(`^(${ID_RE})\\[\\((.+)\\)\\]$`)
 const ROUNDED_BRACKET_NODE_RE = new RegExp(`^(${ID_RE})\\(\\[(.+)\\]\\)$`)
 const ROUNDED_NODE_RE = new RegExp(`^(${ID_RE})\\((.+)\\)$`)
+const DECISION_NODE_RE = new RegExp(`^(${ID_RE})\\{(.+)\\}$`)
 const BOX_NODE_RE = new RegExp(`^(${ID_RE})\\[(.+)\\]$`)
 const ID_ONLY_RE = new RegExp(`^${ID_RE}$`)
-const EXPLICIT_NODE_SHAPE_RE = new RegExp(`^${ID_RE}(?:\\[|\\()`)
+const EXPLICIT_NODE_SHAPE_RE = new RegExp(`^${ID_RE}(?:\\[|\\(|\\{)`)
 
 function stripQuotes(value: string): string {
   const trimmed = value.trim()
@@ -63,6 +64,9 @@ function parseNodeToken(token: string): FlowchartNode {
 
   const rounded = trimmed.match(ROUNDED_NODE_RE)
   if (rounded) return { id: rounded[1]!, label: stripQuotes(rounded[2]!), shape: "rounded" }
+
+  const decision = trimmed.match(DECISION_NODE_RE)
+  if (decision) return { id: decision[1]!, label: stripQuotes(decision[2]!), shape: "decision" }
 
   const box = trimmed.match(BOX_NODE_RE)
   if (box) return { id: box[1]!, label: stripQuotes(box[2]!), shape: "box" }

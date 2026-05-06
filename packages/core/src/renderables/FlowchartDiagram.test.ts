@@ -3,7 +3,7 @@ import { parseColor } from "../lib/RGBA.js"
 import { createTestRenderer } from "../testing/test-renderer.js"
 import { blendColor, DIAGRAM_FADE_STEPS } from "./diagram-style.js"
 import { renderFlowchartGrid } from "./mermaid/flowchart/drawing.js"
-import { layoutFlowchartDiagram } from "./mermaid/flowchart/layout.js"
+import { DEFAULT_MIN_RANK_GAP, layoutFlowchartDiagram } from "./mermaid/flowchart/layout.js"
 import {
   FlowchartDiagramRenderable,
   parseMermaidFlowchartDiagram,
@@ -22,6 +22,7 @@ flowchart TD
   Start([Start]):::focus --> Form[Collect Details]
   Form -->|valid| Store[(Orders DB)]:::store
   Form -- invalid --> Review(Manual Review)
+  Review --> Decision{Approved?}
 `)
 
     expect(diagram.direction).toBe("TD")
@@ -30,11 +31,13 @@ flowchart TD
       { id: "Form", label: "Collect Details", shape: "box" },
       { id: "Store", label: "Orders DB", shape: "database" },
       { id: "Review", label: "Manual Review", shape: "rounded" },
+      { id: "Decision", label: "Approved?", shape: "decision" },
     ])
     expect(diagram.edges).toEqual([
       { from: "Start", to: "Form", label: "" },
       { from: "Form", to: "Store", label: "valid" },
       { from: "Form", to: "Review", label: "invalid" },
+      { from: "Review", to: "Decision", label: "" },
     ])
   })
 
@@ -84,6 +87,57 @@ graph LR
       │ Client ├─────────▶│ API ├─────────▶│ Cache │
       ╰────────╯          ╰─────╯          ╰───────╯"
     `)
+  })
+
+  test("renders Mermaid decision diamond nodes", () => {
+    const output = renderFlowchartDiagram(`
+flowchart LR
+  Build[Build] --> Gate{Ready?}
+  Gate -->|yes| Ship([Ship])
+  Gate -->|no| Fix[Fix]
+`)
+
+    expect(output).toContain("Ready?")
+    expect(output).toContain("╭─╯")
+    expect(output).toContain("╰─╮")
+    expect(output).toContain("yes")
+    expect(output).toContain("no")
+    expect(output).not.toMatch(/[╱╲\\/]/)
+  })
+
+  test("pads edge labels away from corners and arrowheads", () => {
+    const output = renderFlowchartDiagram(`
+flowchart LR
+  Gate{Ready?} -->|pass| Stage[(Stage)]
+  Gate -->|notes| Notes([Notes])
+`)
+
+    expect(output).toContain(" pass ")
+    expect(output).toContain(" notes ")
+    expect(output).not.toContain("┌pass")
+    expect(output).not.toContain("└notes")
+    expect(output).not.toContain("pass─▶")
+    expect(output).not.toContain("notes▶")
+  })
+
+  test("only expands horizontal rank gaps for labeled edges", () => {
+    const { bounds } = layoutFlowchartDiagram(`
+flowchart LR
+  Spec[Spec] --> Plan[Plan]
+  Plan --> Build[Build]
+  Build --> Gate{Ready?}
+  Gate -->|pass| Stage[(Stage)]
+`)
+    const gapBetween = (fromId: string, toId: string): number => {
+      const from = bounds.get(fromId)!
+      const to = bounds.get(toId)!
+      return to.left - (from.left + from.width)
+    }
+
+    expect(gapBetween("Spec", "Plan")).toBe(DEFAULT_MIN_RANK_GAP)
+    expect(gapBetween("Plan", "Build")).toBe(DEFAULT_MIN_RANK_GAP)
+    expect(gapBetween("Build", "Gate")).toBe(DEFAULT_MIN_RANK_GAP)
+    expect(gapBetween("Gate", "Stage")).toBeGreaterThan(DEFAULT_MIN_RANK_GAP)
   })
 
   test("renders Mermaid subgraph frames", () => {

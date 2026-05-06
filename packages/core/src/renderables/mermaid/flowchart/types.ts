@@ -1,7 +1,7 @@
 import type { DiagramBounds, DiagramDirection, DiagramPoint } from "../../diagram-geometry.js"
 
 export type FlowchartDirection = "TB" | "TD" | "BT" | "LR" | "RL"
-export type FlowchartNodeShape = "box" | "rounded" | "database"
+export type FlowchartNodeShape = "box" | "rounded" | "database" | "decision"
 
 export interface FlowchartNode {
   id: string

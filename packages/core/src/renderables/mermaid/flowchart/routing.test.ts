@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { FlowchartDiagram, FlowchartNodeBounds } from "./types.js"
-import { flowchartLabelPoint, routeFlowchartEdges } from "./routing.js"
+import { flowchartEdgeLabelLayout, routeFlowchartEdges } from "./routing.js"
 
 function bounds(id: string, left: number, top: number): FlowchartNodeBounds {
   const width = 5
@@ -141,36 +141,48 @@ describe("flowchart routing", () => {
         ],
       },
     ])
-    expect(flowchartLabelPoint(routes[0]!.points, edge.label, "LR", (text) => text.length)).toEqual({ x: 23, y: 5 })
+    expect(flowchartEdgeLabelLayout(routes[0]!.points, edge.label, (text) => text.length).point).toEqual({
+      x: 23,
+      y: 5,
+    })
   })
 
-  test("uses vertical sidecar labels when short horizontal segments cannot fit", () => {
+  test("places labels inline only when the padded text fits with clearance", () => {
     expect(
-      flowchartLabelPoint(
+      flowchartEdgeLabelLayout(
+        [
+          { x: 0, y: 2 },
+          { x: 13, y: 2 },
+        ],
+        "rollback",
+        (text) => text.length,
+      ).point,
+    ).toEqual({ x: 2, y: 2 })
+
+    expect(
+      flowchartEdgeLabelLayout(
         [
           { x: 0, y: 2 },
           { x: 9, y: 2 },
         ],
         "rollback",
-        "LR",
         (text) => text.length,
-      ),
-    ).toEqual({ x: 1, y: 2 })
+      ).point,
+    ).toEqual({ x: 2, y: 1 })
 
     expect(
-      flowchartLabelPoint(
+      flowchartEdgeLabelLayout(
         [
           { x: 0, y: 2 },
           { x: 7, y: 2 },
         ],
         "rollback",
-        "LR",
         (text) => text.length,
-      ),
-    ).toEqual({ x: 1, y: 1 })
+      ).point,
+    ).toEqual({ x: 2, y: 1 })
 
     expect(
-      flowchartLabelPoint(
+      flowchartEdgeLabelLayout(
         [
           { x: 155, y: 5 },
           { x: 150, y: 5 },
@@ -178,9 +190,8 @@ describe("flowchart routing", () => {
           { x: 146, y: 9 },
         ],
         "rollback",
-        "LR",
         (text) => text.length,
-      ),
+      ).point,
     ).toEqual({ x: 151, y: 7 })
   })
 })

@@ -39,26 +39,17 @@ export const SUPPORT_FLOWCHART = `graph LR
   Docs --> Done`
 
 export const RELEASE_FLOWCHART = `flowchart LR
-  Spec([Spec]) --> Design[Design Review]
+  Spec([Spec]) --> Plan[Plan]
   subgraph BuildPlan [Build Plan]
-    API[API Contracts]
-    UI[UI States]
+    Plan --> Build[Build]
+    Build --> Gate{Ready?}
   end
-  subgraph Rollout [Release Path]
-    Stage[(Staging)]
-    Canary[Canary]
-    Prod[(Prod)]
+  Gate -->|pass| Stage[(Stage)]
+  subgraph ReleasePath [Release Path]
+    Stage --> Done([Done])
+    Notes --> Done
   end
-  Design --> API[API Contracts]
-  Design --> UI[UI States]
-  API --> Build[Build]
-  UI --> Build
-  Build --> Test[Tests]
-  Test -->|pass| Stage[(Staging)]
-  Stage --> Canary[Canary]
-  Canary -->|healthy| Prod[(Prod)]
-  Prod --> Observe[Observe]
-  Observe --> Notes([Notes])`
+  Gate -->|notes| Notes([Notes])`
 
 interface FlowchartExample {
   title: string
@@ -92,7 +83,7 @@ const EXAMPLES: FlowchartExample[] = [
   { title: "Sketch Pipeline", content: SKETCH_FLOWCHART },
   { title: "Checkout", content: CHECKOUT_FLOWCHART },
   { title: "Support Routing", content: SUPPORT_FLOWCHART },
-  { title: "Release Train", content: RELEASE_FLOWCHART },
+  { title: "Release Gate", content: RELEASE_FLOWCHART },
 ]
 
 const THEMES: FlowchartTheme[] = [

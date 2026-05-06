@@ -3,14 +3,16 @@ import { walkOrthogonalSegment } from "../../diagram-geometry.js"
 import { DiagramCanvas, type DiagramCanvasCell } from "../../diagram-canvas.js"
 import {
   DIAGRAM_ARROW_HEADS,
+  diagramDiamondCharactersFromBorder,
   diagramArrowHeadBetween,
+  drawDiagramDiamond,
   drawDiagramFrame,
   drawOrthogonalPath,
   mergeDiagramLineGlyph,
 } from "../../diagram-drawing.js"
 import { layoutFlowchartDiagram, visualLength } from "./layout.js"
 import type { FlowchartDiagramRenderOptions } from "./options.js"
-import { flowchartDirectionBetween, flowchartLabelPoint, flowchartSourceConnector } from "./routing.js"
+import { flowchartDirectionBetween, flowchartEdgeLabelLayout, flowchartSourceConnector } from "./routing.js"
 import {
   DATABASE_EDGE_FADE_STYLES,
   NODE_EDGE_FADE_STYLES,
@@ -20,7 +22,6 @@ import {
 } from "./style.js"
 import type {
   FlowchartDiagram,
-  FlowchartDirection,
   FlowchartEdgeRoute,
   FlowchartNode,
   FlowchartNodeBounds,
@@ -54,11 +55,21 @@ function drawNode(
   const chars = BorderChars[borderStyle]
   const style: FlowchartCellStyle = node.shape === "database" ? "database" : "node"
 
-  drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, style))
+  if (node.shape === "decision") {
+    drawDiagramDiamond(
+      bounds,
+      (x, y, char) => grid.setCell(x, y, char, style),
+      diagramDiamondCharactersFromBorder(chars),
+    )
+  } else {
+    drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, style))
+  }
 
+  const textTop =
+    node.shape === "decision" ? bounds.top + Math.floor((bounds.height - bounds.lines.length) / 2) : bounds.top + 1
   for (const [index, line] of bounds.lines.entries()) {
     const lineX = bounds.left + Math.max(1, Math.floor((bounds.width - visualLength(line)) / 2))
-    grid.setText(lineX, bounds.top + 1 + index, line, style)
+    grid.setText(lineX, textTop + index, line, style)
   }
 }
 
@@ -71,7 +82,7 @@ function drawSubgraph(grid: FlowchartGrid, bounds: FlowchartSubgraphBounds, bord
   }
 }
 
-function drawRoutedEdge(grid: FlowchartGrid, route: FlowchartEdgeRoute, direction: FlowchartDirection): void {
+function drawRoutedEdge(grid: FlowchartGrid, route: FlowchartEdgeRoute): void {
   const { edge, points } = route
   if (points.length < 2) return
 
@@ -80,8 +91,8 @@ function drawRoutedEdge(grid: FlowchartGrid, route: FlowchartEdgeRoute, directio
   const arrowFrom = points[points.length - 2]!
   grid.setCell(end.x, end.y, diagramArrowHeadBetween(arrowFrom, end), "edge")
   if (edge.label) {
-    const point = flowchartLabelPoint(points, edge.label, direction, visualLength)
-    grid.setText(point.x, point.y, edge.label, "label")
+    const label = flowchartEdgeLabelLayout(points, edge.label, visualLength)
+    grid.setText(label.point.x, label.point.y, label.text, "label")
   }
 }
 
@@ -153,7 +164,7 @@ export function renderFlowchartGrid(content: string, options: FlowchartDiagramRe
     const bound = subgraphBounds.get(subgraph.id)
     if (bound) drawSubgraph(grid, bound, borderStyle)
   }
-  for (const route of routes) drawRoutedEdge(grid, route, diagram.direction)
+  for (const route of routes) drawRoutedEdge(grid, route)
   for (const node of diagram.nodes) {
     const bound = bounds.get(node.id)
     if (bound) drawNode(grid, node, bound, borderStyle)

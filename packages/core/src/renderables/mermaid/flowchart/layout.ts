@@ -2,7 +2,13 @@ import { stringWidth } from "../../../platform/runtime.js"
 import { segmentBetween, segmentSpan } from "../../diagram-geometry.js"
 import type { FlowchartDiagramRenderOptions } from "./options.js"
 import { parseMermaidFlowchartDiagram } from "./parser.js"
-import { flowchartLabelPoint, routeFlowchartEdges } from "./routing.js"
+import {
+  flowchartEdgeLabelLayout,
+  flowchartHorizontalLabelRankGap,
+  flowchartLabelWidth,
+  flowchartVerticalBranchLabelGap,
+  routeFlowchartEdges,
+} from "./routing.js"
 import type {
   FlowchartDiagram,
   FlowchartEdgeRoute,
@@ -31,6 +37,30 @@ export interface FlowchartLayout {
 
 type FlowchartBounds = Pick<FlowchartSubgraphBounds, "left" | "top" | "width" | "height" | "centerX" | "centerY">
 
+function horizontalRankGaps(
+  diagram: FlowchartDiagram,
+  normalizedRanks: ReadonlyMap<string, number>,
+  rankKeys: readonly number[],
+  fallback: number,
+): number[] {
+  const gaps = Array.from({ length: Math.max(0, rankKeys.length - 1) }, () => fallback)
+  const rankIndexes = new Map(rankKeys.map((rank, index) => [rank, index]))
+
+  for (const edge of diagram.edges) {
+    if (!edge.label) continue
+    const fromIndex = rankIndexes.get(normalizedRanks.get(edge.from) ?? -1)
+    const toIndex = rankIndexes.get(normalizedRanks.get(edge.to) ?? -1)
+    if (fromIndex === undefined || toIndex === undefined || fromIndex === toIndex) continue
+
+    const labelGap = flowchartHorizontalLabelRankGap(flowchartLabelWidth(edge.label, visualLength))
+    for (let index = Math.min(fromIndex, toIndex); index < Math.max(fromIndex, toIndex); index++) {
+      gaps[index] = Math.max(gaps[index]!, labelGap)
+    }
+  }
+
+  return gaps
+}
+
 export function visualLength(value: string): number {
   return stringWidth(value)
 }
@@ -47,6 +77,10 @@ function splitLines(value: string): string[] {
 function nodeSize(node: FlowchartNode): FlowchartNodeSize {
   const lines = splitLines(node.label)
   const innerWidth = Math.max(...lines.map(visualLength), 1)
+  if (node.shape === "decision") {
+    const width = innerWidth + 6
+    return { width: width % 2 === 0 ? width + 1 : width, height: Math.max(5, lines.length + 4), lines }
+  }
   return { width: innerWidth + 4, height: lines.length + 2, lines }
 }
 
@@ -160,16 +194,12 @@ function segmentOverlapsSlot(
   return segment.from.x >= slot.left && segment.from.x <= slotRight && slot.top >= span.start && slot.top <= span.end
 }
 
-function routeOverlapsSlot(
-  route: FlowchartEdgeRoute,
-  slot: FlowchartBounds,
-  direction: FlowchartDiagram["direction"],
-): boolean {
+function routeOverlapsSlot(route: FlowchartEdgeRoute, slot: FlowchartBounds): boolean {
   for (let index = 1; index < route.points.length; index++) {
     if (segmentOverlapsSlot(route.points[index - 1]!, route.points[index]!, slot)) return true
   }
 
-  const routeLabelBounds = labelBounds(route, direction)
+  const routeLabelBounds = labelBounds(route)
   if (!routeLabelBounds || routeLabelBounds.top !== slot.top) return false
   return spansOverlap(
     routeLabelBounds.left,
@@ -182,13 +212,12 @@ function routeOverlapsSlot(
 function chooseSubgraphLabelSide(
   bounds: FlowchartSubgraphBounds,
   routes: readonly FlowchartEdgeRoute[],
-  direction: FlowchartDiagram["direction"],
 ): FlowchartSubgraphBounds["labelSide"] {
   const topSlot = labelSlot(bounds, "top")
-  if (!routes.some((route) => routeOverlapsSlot(route, topSlot, direction))) return "top"
+  if (!routes.some((route) => routeOverlapsSlot(route, topSlot))) return "top"
 
   const bottomSlot = labelSlot(bounds, "bottom")
-  return routes.some((route) => routeOverlapsSlot(route, bottomSlot, direction)) ? "top" : "bottom"
+  return routes.some((route) => routeOverlapsSlot(route, bottomSlot)) ? "top" : "bottom"
 }
 
 function pathBounds(points: readonly { x: number; y: number }[]): FlowchartBounds | undefined {
@@ -202,33 +231,25 @@ function pathBounds(points: readonly { x: number; y: number }[]): FlowchartBound
   return { left, top, width, height, centerX: left + Math.floor(width / 2), centerY: top + Math.floor(height / 2) }
 }
 
-function labelBounds(route: FlowchartEdgeRoute, direction: FlowchartDiagram["direction"]): FlowchartBounds | undefined {
+function labelBounds(route: FlowchartEdgeRoute): FlowchartBounds | undefined {
   if (!route.edge.label) return undefined
-  const point = flowchartLabelPoint(route.points, route.edge.label, direction, visualLength)
-  const width = visualLength(route.edge.label)
+  const label = flowchartEdgeLabelLayout(route.points, route.edge.label, visualLength)
+  const { point, width } = label
   return { left: point.x, top: point.y, width, height: 1, centerX: point.x + Math.floor(width / 2), centerY: point.y }
 }
 
-function subgraphRouteBounds(
-  subgraphNodeIds: Set<string>,
-  routes: readonly FlowchartEdgeRoute[],
-  direction: FlowchartDiagram["direction"],
-): FlowchartBounds[] {
+function subgraphRouteBounds(subgraphNodeIds: Set<string>, routes: readonly FlowchartEdgeRoute[]): FlowchartBounds[] {
   return routeRenderBounds(
     routes.filter((route) => subgraphNodeIds.has(route.edge.from) && subgraphNodeIds.has(route.edge.to)),
-    direction,
   )
 }
 
-function routeRenderBounds(
-  routes: readonly FlowchartEdgeRoute[],
-  direction: FlowchartDiagram["direction"],
-): FlowchartBounds[] {
+function routeRenderBounds(routes: readonly FlowchartEdgeRoute[]): FlowchartBounds[] {
   const bounds: FlowchartBounds[] = []
   for (const route of routes) {
     const routeBounds = pathBounds(route.points)
     if (routeBounds) bounds.push(routeBounds)
-    const routeLabelBounds = labelBounds(route, direction)
+    const routeLabelBounds = labelBounds(route)
     if (routeLabelBounds) bounds.push(routeLabelBounds)
   }
   return bounds
@@ -248,7 +269,7 @@ function layoutSubgraphs(
       const bound = nodeBounds.get(nodeId)
       if (bound) children.push(bound)
     }
-    children.push(...subgraphRouteBounds(new Set(subgraph.nodeIds), routes, diagram.direction))
+    children.push(...subgraphRouteBounds(new Set(subgraph.nodeIds), routes))
     for (const childSubgraph of subgraphs) {
       if (childSubgraph.parentId !== subgraph.id) continue
       const bound = subgraphBounds.get(childSubgraph.id)
@@ -256,7 +277,7 @@ function layoutSubgraphs(
     }
     if (children.length > 0) {
       const bound = subgraphBoundFromChildren(subgraph.id, subgraph.label, children)
-      bound.labelSide = chooseSubgraphLabelSide(bound, routes, diagram.direction)
+      bound.labelSide = chooseSubgraphLabelSide(bound, routes)
       subgraphBounds.set(subgraph.id, bound)
     }
   }
@@ -270,25 +291,36 @@ export function layoutFlowchartDiagram(content: string, options: FlowchartDiagra
   const direction = diagram.direction
   const horizontal = direction === "LR" || direction === "RL"
   const minNodeGap = normalizePositiveInt(options.minNodeGap, DEFAULT_MIN_NODE_GAP)
-  const rankNodeGap = horizontal ? minNodeGap : Math.max(minNodeGap, DEFAULT_MIN_BRANCH_LABEL_GAP)
-  const minRankGap = normalizePositiveInt(
+  const requestedMinRankGap = normalizePositiveInt(
     options.minRankGap,
     horizontal ? DEFAULT_MIN_RANK_GAP : DEFAULT_MIN_VERTICAL_RANK_GAP,
   )
+  let widestPaddedEdgeLabel = 0
+  for (const edge of diagram.edges) {
+    if (edge.label)
+      widestPaddedEdgeLabel = Math.max(widestPaddedEdgeLabel, flowchartLabelWidth(edge.label, visualLength))
+  }
+  const rankNodeGap = horizontal
+    ? minNodeGap
+    : Math.max(minNodeGap, DEFAULT_MIN_BRANCH_LABEL_GAP, flowchartVerticalBranchLabelGap(widestPaddedEdgeLabel))
+  const minRankGap = requestedMinRankGap
   const ranks = rankNodes(diagram)
   const maxRank = Math.max(0, ...ranks.values())
   const sizes = new Map(diagram.nodes.map((node) => [node.id, nodeSize(node)]))
   const ranksByIndex = new Map<number, FlowchartNode[]>()
+  const normalizedRanks = new Map<string, number>()
 
   for (const node of diagram.nodes) {
     const rank = ranks.get(node.id) ?? 0
     const normalizedRank = direction === "RL" || direction === "BT" ? maxRank - rank : rank
+    normalizedRanks.set(node.id, normalizedRank)
     const nodes = ranksByIndex.get(normalizedRank) ?? []
     nodes.push(node)
     ranksByIndex.set(normalizedRank, nodes)
   }
 
   const rankKeys = [...ranksByIndex.keys()].sort((a, b) => a - b)
+  const horizontalGaps = horizontal ? horizontalRankGaps(diagram, normalizedRanks, rankKeys, minRankGap) : []
   const bounds = new Map<string, FlowchartNodeBounds>()
 
   if (horizontal) {
@@ -322,7 +354,7 @@ export function layoutFlowchartDiagram(content: string, options: FlowchartDiagra
         })
         y += size.height + rankNodeGap
       }
-      x += columnWidth + minRankGap
+      x += columnWidth + (horizontalGaps[rankIndex] ?? 0)
     }
   } else {
     const rowHeights = rankKeys.map((rank) =>
@@ -361,7 +393,7 @@ export function layoutFlowchartDiagram(content: string, options: FlowchartDiagra
 
   const routes = routeFlowchartEdges(diagram, bounds)
   const subgraphBounds = layoutSubgraphs(diagram, bounds, routes)
-  const allBounds = [...bounds.values(), ...subgraphBounds.values(), ...routeRenderBounds(routes, diagram.direction)]
+  const allBounds = [...bounds.values(), ...subgraphBounds.values(), ...routeRenderBounds(routes)]
   const dx = Math.max(0, -Math.min(0, ...allBounds.map((bound) => bound.left)))
   const dy = Math.max(0, -Math.min(0, ...allBounds.map((bound) => bound.top)))
   if (dx > 0 || dy > 0) {

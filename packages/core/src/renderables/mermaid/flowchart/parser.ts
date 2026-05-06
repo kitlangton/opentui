@@ -117,7 +117,9 @@ function stripNodeToken(token: string): string {
 }
 
 function edgeStyleFromArrow(arrow: string): FlowchartEdgeStyle | undefined {
-  return arrow.includes("==") ? "thick" : undefined
+  if (arrow.includes("==")) return "thick"
+  if (arrow.includes(".")) return "dashed"
+  return undefined
 }
 
 function createEdge(from: string, to: string, label: string, style: FlowchartEdgeStyle | undefined): FlowchartEdge {
@@ -169,8 +171,8 @@ export function parseMermaidFlowchartDiagram(content: string): FlowchartDiagram 
 
     const currentSubgraph = subgraphStack[subgraphStack.length - 1]
 
-    const pipeEdge = line.match(/^(.+?)\s*(-->|==>)\s*(?:\|([^|]*)\|\s*)?(.+)$/)
-    const textEdge = line.match(/^(.+?)\s*(--|==)\s+(.+?)\s+(-->|==>)\s*(.+)$/)
+    const pipeEdge = line.match(/^(.+?)\s*(-->|==>|-\.->)\s*(?:\|([^|]*)\|\s*)?(.+)$/)
+    const textEdge = line.match(/^(.+?)\s*(--|==|-\.)\s+(.+?)\s+(-->|==>|\.->|-\.->)\s*(.+)$/)
     const edgeMatch = textEdge ?? pipeEdge
     if (edgeMatch) {
       const from = ensureNode(nodes, stripNodeToken(edgeMatch[1]!))
@@ -180,7 +182,8 @@ export function parseMermaidFlowchartDiagram(content: string): FlowchartDiagram 
       addNodeToSubgraph(currentSubgraph, to.id)
       const arrow = textEdge ? edgeMatch[4]! : edgeMatch[2]!
       const label = textEdge ? edgeMatch[3]! : (edgeMatch[3] ?? "")
-      edges.push(createEdge(from.id, to.id, label.trim(), edgeStyleFromArrow(arrow)))
+      const styleToken = textEdge ? `${edgeMatch[2]!}${arrow}` : arrow
+      edges.push(createEdge(from.id, to.id, label.trim(), edgeStyleFromArrow(styleToken)))
       continue
     }
 

@@ -54,6 +54,7 @@ function mergeFlowchartCell(
 ): DiagramCanvasCell<FlowchartCellStyle> {
   if (incoming.style !== "edge") return incoming
   if (existing.style === "label") return existing
+  if (incoming.char === " ") return existing
   if (existing.style !== "edge" || existing.char === " ") return incoming
   if (DIAGRAM_ARROW_HEADS.has(existing.char) || DIAGRAM_ARROW_HEADS.has(incoming.char)) return incoming
 
@@ -123,7 +124,7 @@ function drawRoutedEdge(grid: FlowchartGrid, route: FlowchartEdgeRoute): void {
   if (points.length < 2) return
 
   drawOrthogonalPath(points, (x, y, char) => grid.setCell(x, y, char, "edge"), {
-    lineStyle: edge.style === "thick" ? "heavy" : "single",
+    lineStyle: edge.style === "thick" ? "heavy" : edge.style === "dashed" ? "dashed" : "single",
   })
   const end = points[points.length - 1]!
   const arrowFrom = points[points.length - 2]!

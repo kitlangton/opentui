@@ -8,7 +8,7 @@ import {
 } from "./diagram-geometry.js"
 
 export type DiagramLineCornerStyle = "square" | "rounded"
-export type DiagramLineStyle = "single" | "heavy"
+export type DiagramLineStyle = "single" | "heavy" | "dashed"
 export type DiagramArrowHeadStyle = "filled" | "line"
 
 export interface DiagramDiamondCharacters {
@@ -268,7 +268,11 @@ export function drawOrthogonalPath(
         : direction === "left" || direction === "right"
           ? "─"
           : "│"
-    walkOrthogonalSegment(from, to, index === 1, (point) => setCell(point.x, point.y, glyph))
+    let step = index === 1 ? 0 : 1
+    walkOrthogonalSegment(from, to, index === 1, (point) => {
+      setCell(point.x, point.y, options.lineStyle === "dashed" && step % 2 === 1 ? " " : glyph)
+      step += 1
+    })
   }
 
   for (let index = 1; index < points.length - 1; index++) {

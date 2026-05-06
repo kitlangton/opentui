@@ -70,6 +70,20 @@ describe("diagram drawing", () => {
     expect(canvas.toString({ trimBottom: true })).toBe("━━━┓\n   ┃\n   ┗━━")
   })
 
+  test("draws orthogonal paths with dashed line style", () => {
+    const canvas = new DiagramCanvas<"edge">(9, 1)
+    drawOrthogonalPath(
+      [
+        { x: 0, y: 0 },
+        { x: 8, y: 0 },
+      ],
+      (x, y, char) => canvas.setCell(x, y, char, "edge"),
+      { lineStyle: "dashed" },
+    )
+
+    expect(canvas.toString({ trimBottom: true })).toBe("─ ─ ─ ─")
+  })
+
   test("keeps container frame policy separate from edge drawing policy", () => {
     const canvas = new DiagramCanvas<"group" | "edge">(8, 5, {
       mergeCell: (existing, incoming) => {

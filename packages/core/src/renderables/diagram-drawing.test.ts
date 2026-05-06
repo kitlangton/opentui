@@ -54,6 +54,22 @@ describe("diagram drawing", () => {
     expect(canvas.toString({ trimBottom: true })).toBe("───╮\n   │\n   ╰──")
   })
 
+  test("draws orthogonal paths with heavy line style", () => {
+    const canvas = new DiagramCanvas<"edge">(7, 4)
+    drawOrthogonalPath(
+      [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 2 },
+        { x: 6, y: 2 },
+      ],
+      (x, y, char) => canvas.setCell(x, y, char, "edge"),
+      { lineStyle: "heavy" },
+    )
+
+    expect(canvas.toString({ trimBottom: true })).toBe("━━━┓\n   ┃\n   ┗━━")
+  })
+
   test("keeps container frame policy separate from edge drawing policy", () => {
     const canvas = new DiagramCanvas<"group" | "edge">(8, 5, {
       mergeCell: (existing, incoming) => {

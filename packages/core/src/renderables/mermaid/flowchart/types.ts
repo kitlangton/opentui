@@ -2,6 +2,7 @@ import type { DiagramBounds, DiagramDirection, DiagramPoint } from "../../diagra
 
 export type FlowchartDirection = "TB" | "TD" | "BT" | "LR" | "RL"
 export type FlowchartNodeShape = "box" | "rounded" | "database" | "decision" | "subroutine"
+export type FlowchartEdgeStyle = "thick"
 
 export interface FlowchartNode {
   id: string
@@ -13,6 +14,7 @@ export interface FlowchartEdge {
   from: string
   to: string
   label: string
+  style?: FlowchartEdgeStyle
 }
 
 export interface FlowchartSubgraph {

@@ -1,4 +1,11 @@
-import type { FlowchartDiagram, FlowchartDirection, FlowchartEdge, FlowchartNode, FlowchartSubgraph } from "./types.js"
+import type {
+  FlowchartDiagram,
+  FlowchartDirection,
+  FlowchartEdge,
+  FlowchartEdgeStyle,
+  FlowchartNode,
+  FlowchartSubgraph,
+} from "./types.js"
 
 const DEFAULT_DIRECTION = "TD" satisfies FlowchartDirection
 const FLOWCHART_HEADER_RE = /^(flowchart|graph)(?:\s+(TB|TD|BT|LR|RL))?$/i
@@ -109,6 +116,14 @@ function stripNodeToken(token: string): string {
     .trim()
 }
 
+function edgeStyleFromArrow(arrow: string): FlowchartEdgeStyle | undefined {
+  return arrow.includes("==") ? "thick" : undefined
+}
+
+function createEdge(from: string, to: string, label: string, style: FlowchartEdgeStyle | undefined): FlowchartEdge {
+  return style ? { from, to, label, style } : { from, to, label }
+}
+
 export function isMermaidFlowchartDiagram(content: string): boolean {
   for (const line of content.split(/\r?\n/)) {
     const trimmed = line.trim()
@@ -154,15 +169,18 @@ export function parseMermaidFlowchartDiagram(content: string): FlowchartDiagram 
 
     const currentSubgraph = subgraphStack[subgraphStack.length - 1]
 
-    const pipeEdge = line.match(/^(.+?)\s*-->\s*(?:\|([^|]*)\|\s*)?(.+)$/)
-    const textEdge = line.match(/^(.+?)\s*--\s+(.+?)\s+-->\s*(.+)$/)
+    const pipeEdge = line.match(/^(.+?)\s*(-->|==>)\s*(?:\|([^|]*)\|\s*)?(.+)$/)
+    const textEdge = line.match(/^(.+?)\s*(--|==)\s+(.+?)\s+(-->|==>)\s*(.+)$/)
     const edgeMatch = textEdge ?? pipeEdge
     if (edgeMatch) {
       const from = ensureNode(nodes, stripNodeToken(edgeMatch[1]!))
-      const to = ensureNode(nodes, stripNodeToken(edgeMatch[3]!))
+      const toToken = textEdge ? edgeMatch[5]! : edgeMatch[4]!
+      const to = ensureNode(nodes, stripNodeToken(toToken))
       addNodeToSubgraph(currentSubgraph, from.id)
       addNodeToSubgraph(currentSubgraph, to.id)
-      edges.push({ from: from.id, to: to.id, label: (edgeMatch[2] ?? "").trim() })
+      const arrow = textEdge ? edgeMatch[4]! : edgeMatch[2]!
+      const label = textEdge ? edgeMatch[3]! : (edgeMatch[3] ?? "")
+      edges.push(createEdge(from.id, to.id, label.trim(), edgeStyleFromArrow(arrow)))
       continue
     }
 

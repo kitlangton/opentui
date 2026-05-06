@@ -72,6 +72,18 @@ flowchart LR
     expect(output).toContain("╰─┴─────┴─╯")
   })
 
+  test("parses and renders Mermaid thick edges", () => {
+    const content = `
+flowchart LR
+  Build[Build] ==> Ship[Ship]
+`
+    const diagram = parseMermaidFlowchartDiagram(content)
+    const output = renderFlowchartDiagram(content)
+
+    expect(diagram.edges).toEqual([{ from: "Build", to: "Ship", label: "", style: "thick" }])
+    expect(output).toContain("━━━━━━━━━▶")
+  })
+
   test("tracks nested Mermaid subgraphs", () => {
     const diagram = parseMermaidFlowchartDiagram(`
 flowchart LR

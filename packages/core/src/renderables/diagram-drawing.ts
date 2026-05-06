@@ -8,6 +8,7 @@ import {
 } from "./diagram-geometry.js"
 
 export type DiagramLineCornerStyle = "square" | "rounded"
+export type DiagramLineStyle = "single" | "heavy"
 export type DiagramArrowHeadStyle = "filled" | "line"
 
 export interface DiagramDiamondCharacters {
@@ -71,27 +72,40 @@ function lineDirections(char: string): readonly DiagramDirection[] | undefined {
       return ["left", "right"]
     case "│":
       return ["up", "down"]
+    case "━":
+      return ["left", "right"]
+    case "┃":
+      return ["up", "down"]
     case "┌":
     case "╭":
+    case "┏":
       return ["right", "down"]
     case "┐":
     case "╮":
+    case "┓":
       return ["left", "down"]
     case "└":
     case "╰":
+    case "┗":
       return ["up", "right"]
     case "┘":
     case "╯":
+    case "┛":
       return ["up", "left"]
     case "├":
+    case "┣":
       return ["up", "down", "right"]
     case "┤":
+    case "┫":
       return ["up", "down", "left"]
     case "┬":
+    case "┳":
       return ["left", "right", "down"]
     case "┴":
+    case "┻":
       return ["left", "right", "up"]
     case "┼":
+    case "╋":
       return ["up", "down", "left", "right"]
     default:
       return undefined
@@ -101,11 +115,25 @@ function lineDirections(char: string): readonly DiagramDirection[] | undefined {
 export function diagramLineGlyph(
   directions: ReadonlySet<DiagramDirection>,
   cornerStyle: DiagramLineCornerStyle = "square",
+  lineStyle: DiagramLineStyle = "single",
 ): string {
   const up = directions.has("up")
   const down = directions.has("down")
   const left = directions.has("left")
   const right = directions.has("right")
+  if (lineStyle === "heavy") {
+    if (up && down && left && right) return "╋"
+    if (up && down && right) return "┣"
+    if (up && down && left) return "┫"
+    if (left && right && down) return "┳"
+    if (left && right && up) return "┻"
+    if (up && right) return "┗"
+    if (up && left) return "┛"
+    if (down && right) return "┏"
+    if (down && left) return "┓"
+    if (up || down) return "┃"
+    return "━"
+  }
   if (up && down && left && right) return "┼"
   if (up && down && right) return "├"
   if (up && down && left) return "┤"
@@ -119,6 +147,10 @@ export function diagramLineGlyph(
   return "─"
 }
 
+function isHeavyLineGlyph(char: string): boolean {
+  return "━┃┏┓┗┛┣┫┳┻╋".includes(char)
+}
+
 export function mergeDiagramLineGlyph(
   existing: string,
   incoming: string,
@@ -128,7 +160,11 @@ export function mergeDiagramLineGlyph(
   const incomingDirections = lineDirections(incoming)
   if (!existingDirections || !incomingDirections) return undefined
 
-  return diagramLineGlyph(new Set([...existingDirections, ...incomingDirections]), cornerStyle)
+  return diagramLineGlyph(
+    new Set([...existingDirections, ...incomingDirections]),
+    cornerStyle,
+    isHeavyLineGlyph(existing) && isHeavyLineGlyph(incoming) ? "heavy" : "single",
+  )
 }
 
 export function diagramArrowHead(direction: DiagramDirection, style: DiagramArrowHeadStyle = "filled"): string {
@@ -217,14 +253,21 @@ export function drawDiagramDiamond(
 export function drawOrthogonalPath(
   points: readonly DiagramPoint[],
   setCell: (x: number, y: number, char: string) => void,
-  options: { cornerStyle?: DiagramLineCornerStyle } = {},
+  options: { cornerStyle?: DiagramLineCornerStyle; lineStyle?: DiagramLineStyle } = {},
 ): void {
   for (let index = 1; index < points.length; index++) {
     const from = points[index - 1]!
     const to = points[index]!
     const direction = directionBetween(from, to)
     if (!direction) continue
-    const glyph = direction === "left" || direction === "right" ? "─" : "│"
+    const glyph =
+      options.lineStyle === "heavy"
+        ? direction === "left" || direction === "right"
+          ? "━"
+          : "┃"
+        : direction === "left" || direction === "right"
+          ? "─"
+          : "│"
     walkOrthogonalSegment(from, to, index === 1, (point) => setCell(point.x, point.y, glyph))
   }
 
@@ -237,6 +280,6 @@ export function drawOrthogonalPath(
     const directions = new Set<DiagramDirection>()
     if (fromDirection) directions.add(fromDirection)
     if (toDirection) directions.add(toDirection)
-    setCell(current.x, current.y, diagramLineGlyph(directions, options.cornerStyle))
+    setCell(current.x, current.y, diagramLineGlyph(directions, options.cornerStyle, options.lineStyle))
   }
 }

@@ -122,7 +122,9 @@ function drawRoutedEdge(grid: FlowchartGrid, route: FlowchartEdgeRoute): void {
   const { edge, points } = route
   if (points.length < 2) return
 
-  drawOrthogonalPath(points, (x, y, char) => grid.setCell(x, y, char, "edge"))
+  drawOrthogonalPath(points, (x, y, char) => grid.setCell(x, y, char, "edge"), {
+    lineStyle: edge.style === "thick" ? "heavy" : "single",
+  })
   const end = points[points.length - 1]!
   const arrowFrom = points[points.length - 2]!
   grid.setCell(end.x, end.y, diagramArrowHeadBetween(arrowFrom, end), "edge")
@@ -144,7 +146,7 @@ function flowchartPulseCellStyle(
   edgeDistance: number,
   char: string,
 ): { style: FlowchartEdgePulseStyle; level: number } {
-  const level = diagramPulseLevel(distance, radius, edgeDistance, char === "─" || char === "│")
+  const level = diagramPulseLevel(distance, radius, edgeDistance, "─│━┃".includes(char))
   return { style: EDGE_PULSE_STYLES[level - 1]!, level }
 }
 

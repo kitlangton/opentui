@@ -3,15 +3,14 @@ import { parseColor, RGBA, type ColorInput } from "../../../lib/RGBA.js"
 import type { RenderContext } from "../../../types.js"
 import { TextBufferRenderable } from "../../TextBufferRenderable.js"
 import { colorsEqual } from "../../diagram-style.js"
+import { DEFAULT_BORDER_STYLE, renderFlowchartGrid } from "./drawing.js"
 import {
-  DEFAULT_BORDER_STYLE,
   normalizeFlowchartPulseFrame,
   normalizeFlowchartPulseGap,
   normalizeFlowchartPulseLength,
   normalizeFlowchartPulseProgress,
-  renderFlowchartGrid,
-} from "./drawing.js"
-import type { FlowchartDiagramOptions } from "./options.js"
+  type FlowchartDiagramOptions,
+} from "./options.js"
 import { renderGridStyledText, resolveFlowchartStyleColors, type FlowchartGrid } from "./style.js"
 import type { FlowchartDirection } from "./types.js"
 

@@ -237,6 +237,26 @@ export function walkOrthogonalSegment(
   }
 }
 
+export function orthogonalPathPoints(points: readonly DiagramPoint[]): DiagramPoint[] {
+  const path: DiagramPoint[] = []
+  for (let index = 1; index < points.length; index++) {
+    const from = points[index - 1]!
+    const to = points[index]!
+    const direction = directionBetween(from, to)
+    if (!direction) continue
+
+    const dx = direction === "right" ? 1 : direction === "left" ? -1 : 0
+    const dy = direction === "down" ? 1 : direction === "up" ? -1 : 0
+    let cursor = path.length === 0 ? point(from.x, from.y) : point(from.x + dx, from.y + dy)
+    while (true) {
+      path.push(cursor)
+      if (samePoint(cursor, to)) break
+      cursor = point(cursor.x + dx, cursor.y + dy)
+    }
+  }
+  return path
+}
+
 export function orderedSpan(left: number, right: number): DiagramSpan {
   return left <= right ? { start: left, end: right } : { start: right, end: left }
 }

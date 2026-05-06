@@ -4,6 +4,7 @@ import {
   directionBetween,
   lane,
   orthogonalPath,
+  orthogonalPathPoints,
   pathThrough,
   pathViaLane,
   point,
@@ -71,5 +72,16 @@ describe("diagram geometry", () => {
     const visited: Array<{ x: number; y: number }> = []
     walkOrthogonalSegment(point(0, 0), point(3, 0), false, (next) => visited.push(next))
     expect(visited).toEqual([point(1, 0), point(2, 0)])
+  })
+
+  test("orthogonal path points include endpoints without duplicating joints", () => {
+    expect(orthogonalPathPoints([point(0, 0), point(3, 0), point(3, 2)])).toEqual([
+      point(0, 0),
+      point(1, 0),
+      point(2, 0),
+      point(3, 0),
+      point(3, 1),
+      point(3, 2),
+    ])
   })
 })

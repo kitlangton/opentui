@@ -71,10 +71,6 @@ function mergeFlowchartCell(
   } as DiagramCanvasCell<FlowchartCellStyle, FlowchartCellMetadata>
 }
 
-function nodeMetadata(nodeId: string): FlowchartCellMetadata {
-  return { nodeId, bgNodeId: nodeId }
-}
-
 function setNodeText(
   grid: FlowchartGrid,
   bounds: FlowchartNodeBounds,

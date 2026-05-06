@@ -159,12 +159,7 @@ function targetFanInLane(
   )
 }
 
-function horizontalPort(bounds: FlowchartNodeBounds, travel: HorizontalTravel, role: PortRole): FlowchartPoint {
-  const side = role === "source" ? sideForDirection(travel) : oppositeSide(sideForDirection(travel))
-  return boundsSidePoint(bounds, side)
-}
-
-function verticalPort(bounds: FlowchartNodeBounds, travel: VerticalTravel, role: PortRole): FlowchartPoint {
+function portForTravel(bounds: FlowchartNodeBounds, travel: DiagramDirection, role: PortRole): FlowchartPoint {
   const side = role === "source" ? sideForDirection(travel) : oppositeSide(sideForDirection(travel))
   return boundsSidePoint(bounds, side)
 }
@@ -187,8 +182,8 @@ function horizontalForwardRecords(
     if (!forward) continue
     records.push({
       edge,
-      sourcePort: horizontalPort(source, travel, "source"),
-      targetPort: horizontalPort(target, travel, "target"),
+      sourcePort: portForTravel(source, travel, "source"),
+      targetPort: portForTravel(target, travel, "target"),
     })
   }
   return records
@@ -212,8 +207,8 @@ function verticalForwardRecords(
     if (!forward) continue
     records.push({
       edge,
-      sourcePort: verticalPort(source, travel, "source"),
-      targetPort: verticalPort(target, travel, "target"),
+      sourcePort: portForTravel(source, travel, "source"),
+      targetPort: portForTravel(target, travel, "target"),
     })
   }
   return records
@@ -426,7 +421,7 @@ function routeHorizontalSubgraphExitFanIn(
     const targetSubgraphBound = targetSubgraph ? subgraphBounds.get(targetSubgraph.id) : undefined
     const targetBelow = target.centerY >= subgraphBound.centerY
     const targetPort = targetSubgraph
-      ? horizontalPort(target, horizontalSubgraphEntryTravel(targetSubgraph), "target")
+      ? portForTravel(target, horizontalSubgraphEntryTravel(targetSubgraph), "target")
       : boundsSidePoint(target, targetBelow ? "top" : "bottom")
     const joinY = targetSubgraphBound
       ? horizontalSubgraphJoinY(subgraphBound, targetSubgraphBound)
@@ -437,7 +432,7 @@ function routeHorizontalSubgraphExitFanIn(
         : targetPort.x
 
     for (const record of group) {
-      const sourcePort = horizontalPort(record.source, travel, "source")
+      const sourcePort = portForTravel(record.source, travel, "source")
       routes.push({
         edge: record.edge,
         points: pathThrough([
@@ -471,10 +466,10 @@ function routeHorizontalSubgraphEntries(
     const to = bounds.get(edge.to)
     if (!subgraph || !subgraphBound || !from || !to) continue
 
-    const targetPort = horizontalPort(to, horizontalSubgraphEntryTravel(subgraph), "target")
+    const targetPort = portForTravel(to, horizontalSubgraphEntryTravel(subgraph), "target")
     const entryX = horizontalSubgraphEntryLane(subgraph, subgraphBound)
     const travel = verticalTravel(from, to)
-    const sourcePort = verticalPort(from, travel, "source")
+    const sourcePort = portForTravel(from, travel, "source")
     routes.push({
       edge,
       points: pathThrough([sourcePort, { x: entryX, y: sourcePort.y }, { x: entryX, y: targetPort.y }, targetPort]),

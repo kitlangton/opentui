@@ -2,7 +2,7 @@ import { ANSI } from "../../../ansi.js"
 import { RGBA, type ColorInput } from "../../../lib/RGBA.js"
 import { StyledText } from "../../../lib/styled-text.js"
 import type { TextChunk } from "../../../text-buffer.js"
-import type { DiagramCanvas } from "../../diagram-canvas.js"
+import type { DiagramCanvas, DiagramCanvasRunOptions } from "../../diagram-canvas.js"
 import {
   ansiFg,
   createColorRampTheme,
@@ -139,6 +139,9 @@ export function renderGridStyledText(
 ): StyledText {
   const chunks: TextChunk[] = []
   const useNodeRuns = Boolean(nodeColors?.size || nodeBgColors?.size)
+  const runOptions: DiagramCanvasRunOptions<FlowchartCellStyle, FlowchartCellMetadata> = useNodeRuns
+    ? { trimBottom: true, key: (cell) => [cell.style, cell.nodeId, cell.bgNodeId] }
+    : { trimBottom: true }
   grid.forEachRun(
     (run) => {
       chunks.push({
@@ -149,10 +152,7 @@ export function renderGridStyledText(
       })
     },
     () => chunks.push({ __isChunk: true, text: "\n" }),
-    {
-      trimBottom: true,
-      key: (cell) => (useNodeRuns ? [cell.style, cell.nodeId, cell.bgNodeId] : [cell.style]),
-    },
+    runOptions,
   )
   return new StyledText(chunks)
 }

@@ -217,7 +217,7 @@ let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
 let followTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
 let previousActiveNode: string | undefined
-let flashingActiveNode: string | undefined
+let activeNodeFlashPending = false
 let activeNodeTransitionStartedAt = 0
 const parsedThemeCache = new WeakMap<FlowchartTheme, ParsedFlowchartTheme>()
 const THEME_TRANSITION_MS = 260
@@ -283,7 +283,7 @@ function animatedNodeColors(colors: ParsedFlowchartTheme, now = animationNow()):
       [activeNode]: mixColor(colors.activeNode, colors.node, easeOutCubic(progress)),
     }
   }
-  if ((!previousActiveNode && !flashingActiveNode) || !activeNode) return undefined
+  if ((!previousActiveNode && !activeNodeFlashPending) || !activeNode) return undefined
 
   const progress = clamp01((now - activeNodeTransitionStartedAt) / NODE_COLOR_FADE_MS)
   if (progress >= 1) return undefined
@@ -305,7 +305,7 @@ function activeNodeBackgroundColors(
 ): Record<string, RGBA> | undefined {
   if (followTransition) return undefined
   const activeNode = diagram?.activeNode
-  if ((!previousActiveNode && !flashingActiveNode) || !activeNode) return undefined
+  if ((!previousActiveNode && !activeNodeFlashPending) || !activeNode) return undefined
 
   const progress = clamp01((now - activeNodeTransitionStartedAt) / NODE_COLOR_FADE_MS)
   if (progress >= 1) return undefined
@@ -330,12 +330,12 @@ function applyAnimatedColors(now = animationNow()): void {
   })
   if (!nodeColors && !nodeBgColors) {
     previousActiveNode = undefined
-    flashingActiveNode = undefined
+    activeNodeFlashPending = false
   }
 }
 
 function hasAnimatedColors(): boolean {
-  return Boolean(followTransition || previousActiveNode || flashingActiveNode)
+  return Boolean(followTransition || previousActiveNode || activeNodeFlashPending)
 }
 
 function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): void {
@@ -388,17 +388,15 @@ function tickAnimations(renderer: CliRenderer): void {
 
   if (followTransition && diagram) {
     const amount = Math.min(1, (now - followTransition.startedAt) / FOLLOW_TRANSITION_MS)
-    diagram.activeEdge = followTransition.edge
-    diagram.activeEdgeProgress = amount
-    diagram.pulseProgress = amount
+    diagram.batchUpdate(() => {
+      diagram!.activeEdge = followTransition!.edge
+      diagram!.activeEdgeProgress = amount
+    })
     if (amount >= 1) {
       diagram.followSelectedConnection()
-      diagram.activeEdge = undefined
-      diagram.activeEdgeProgress = undefined
-      diagram.pulseProgress = undefined
       followTransition = undefined
       previousActiveNode = undefined
-      flashingActiveNode = diagram.activeNode
+      activeNodeFlashPending = true
       activeNodeTransitionStartedAt = now
       updateFooter()
     }
@@ -463,7 +461,7 @@ function updateDiagram(): void {
   if (!diagram) return
   followTransition = undefined
   previousActiveNode = undefined
-  flashingActiveNode = undefined
+  activeNodeFlashPending = false
   diagram.content = EXAMPLES[exampleIndex]!.content
   diagram.activeEdge = undefined
   diagram.activeEdgeProgress = undefined
@@ -576,7 +574,6 @@ export function run(renderer: CliRenderer): void {
         diagram.batchUpdate(() => {
           diagram!.activeEdge = selected
           diagram!.activeEdgeProgress = 0
-          diagram!.pulseProgress = 0
         })
         applyAnimatedColors(now)
         updateFooter()
@@ -608,7 +605,7 @@ export function destroy(renderer: CliRenderer): void {
   themeTransition = undefined
   followTransition = undefined
   previousActiveNode = undefined
-  flashingActiveNode = undefined
+  activeNodeFlashPending = false
   activeNodeTransitionStartedAt = 0
   currentThemeColors = undefined
 }

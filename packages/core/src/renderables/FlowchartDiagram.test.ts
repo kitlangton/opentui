@@ -58,6 +58,20 @@ flowchart LR
     ])
   })
 
+  test("parses and renders Mermaid subroutine nodes", () => {
+    const content = `
+flowchart LR
+  Parse[[Parse]] --> Layout[Layout]
+`
+    const diagram = parseMermaidFlowchartDiagram(content)
+    const output = renderFlowchartDiagram(content)
+
+    expect(diagram.nodes[0]).toEqual({ id: "Parse", label: "Parse", shape: "subroutine" })
+    expect(output).toContain("╭─┬─────┬─╮")
+    expect(output).toContain("│ │Parse│ ├")
+    expect(output).toContain("╰─┴─────┴─╯")
+  })
+
   test("tracks nested Mermaid subgraphs", () => {
     const diagram = parseMermaidFlowchartDiagram(`
 flowchart LR

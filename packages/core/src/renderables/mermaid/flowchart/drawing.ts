@@ -1,4 +1,4 @@
-import { BorderChars, type BorderStyle } from "../../../lib/border.js"
+import { BorderChars, type BorderCharacters, type BorderStyle } from "../../../lib/border.js"
 import { orthogonalPathPoints, walkOrthogonalSegment } from "../../diagram-geometry.js"
 import { DiagramCanvas, type DiagramCanvasCell } from "../../diagram-canvas.js"
 import { diagramPulseLevel, visitDiagramPulsePath } from "../../diagram-pulse.js"
@@ -78,6 +78,8 @@ function drawNode(
       (x, y, char) => grid.setCell(x, y, char, style),
       diagramDiamondCharactersFromBorder(chars),
     )
+  } else if (node.shape === "subroutine") {
+    drawSubroutineNode(grid, bounds, chars)
   } else {
     drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, style))
   }
@@ -85,8 +87,25 @@ function drawNode(
   const textTop =
     node.shape === "decision" ? bounds.top + Math.floor((bounds.height - bounds.lines.length) / 2) : bounds.top + 1
   for (const [index, line] of bounds.lines.entries()) {
-    const lineX = bounds.left + Math.max(1, Math.floor((bounds.width - visualLength(line)) / 2))
+    const lineX =
+      node.shape === "subroutine"
+        ? bounds.left + 3
+        : bounds.left + Math.max(1, Math.floor((bounds.width - visualLength(line)) / 2))
     grid.setText(lineX, textTop + index, line, style)
+  }
+}
+
+function drawSubroutineNode(grid: FlowchartGrid, bounds: FlowchartNodeBounds, chars: BorderCharacters): void {
+  drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, "node"))
+  const leftRailX = bounds.left + 2
+  const rightRailX = bounds.left + bounds.width - 3
+  grid.setCell(leftRailX, bounds.top, chars.topT, "node")
+  grid.setCell(rightRailX, bounds.top, chars.topT, "node")
+  grid.setCell(leftRailX, bounds.top + bounds.height - 1, chars.bottomT, "node")
+  grid.setCell(rightRailX, bounds.top + bounds.height - 1, chars.bottomT, "node")
+  for (let y = bounds.top + 1; y < bounds.top + bounds.height - 1; y++) {
+    grid.setCell(leftRailX, y, chars.vertical, "node")
+    grid.setCell(rightRailX, y, chars.vertical, "node")
   }
 }
 

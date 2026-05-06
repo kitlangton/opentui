@@ -7,6 +7,7 @@ const SUBGRAPH_RE = /^subgraph\s+(.+)$/i
 const SUBGRAPH_WITH_LABEL_RE = new RegExp(`^(${ID_RE})\\s*\\[(.+)\\]$`)
 const SUBGRAPH_DIRECTION_RE = /^direction\s+(TB|TD|BT|LR|RL)$/i
 const DATABASE_NODE_RE = new RegExp(`^(${ID_RE})\\[\\((.+)\\)\\]$`)
+const SUBROUTINE_NODE_RE = new RegExp(`^(${ID_RE})\\[\\[(.+)\\]\\]$`)
 const ROUNDED_BRACKET_NODE_RE = new RegExp(`^(${ID_RE})\\(\\[(.+)\\]\\)$`)
 const ROUNDED_NODE_RE = new RegExp(`^(${ID_RE})\\((.+)\\)$`)
 const DECISION_NODE_RE = new RegExp(`^(${ID_RE})\\{(.+)\\}$`)
@@ -58,6 +59,9 @@ function parseNodeToken(token: string): FlowchartNode {
   const trimmed = token.trim().replace(/;$/, "")
   const database = trimmed.match(DATABASE_NODE_RE)
   if (database) return { id: database[1]!, label: stripQuotes(database[2]!), shape: "database" }
+
+  const subroutine = trimmed.match(SUBROUTINE_NODE_RE)
+  if (subroutine) return { id: subroutine[1]!, label: stripQuotes(subroutine[2]!), shape: "subroutine" }
 
   const roundedBracket = trimmed.match(ROUNDED_BRACKET_NODE_RE)
   if (roundedBracket) return { id: roundedBracket[1]!, label: stripQuotes(roundedBracket[2]!), shape: "rounded" }

@@ -81,6 +81,7 @@ function nodeSize(node: FlowchartNode): FlowchartNodeSize {
     const width = innerWidth + 6
     return { width: width % 2 === 0 ? width + 1 : width, height: Math.max(5, lines.length + 4), lines }
   }
+  if (node.shape === "subroutine") return { width: innerWidth + 6, height: lines.length + 2, lines }
   return { width: innerWidth + 4, height: lines.length + 2, lines }
 }
 

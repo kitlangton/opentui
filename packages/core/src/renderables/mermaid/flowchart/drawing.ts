@@ -81,12 +81,18 @@ function drawNode(
     )
   } else if (node.shape === "subroutine") {
     drawSubroutineNode(grid, bounds, chars)
+  } else if (node.shape === "database") {
+    drawDatabaseNode(grid, bounds, chars)
   } else {
     drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, style))
   }
 
   const textTop =
-    node.shape === "decision" ? bounds.top + Math.floor((bounds.height - bounds.lines.length) / 2) : bounds.top + 1
+    node.shape === "decision"
+      ? bounds.top + Math.floor((bounds.height - bounds.lines.length) / 2)
+      : node.shape === "database"
+        ? bounds.top + 2
+        : bounds.top + 1
   for (const [index, line] of bounds.lines.entries()) {
     const lineX =
       node.shape === "subroutine"
@@ -107,6 +113,19 @@ function drawSubroutineNode(grid: FlowchartGrid, bounds: FlowchartNodeBounds, ch
   for (let y = bounds.top + 1; y < bounds.top + bounds.height - 1; y++) {
     grid.setCell(leftRailX, y, chars.vertical, "node")
     grid.setCell(rightRailX, y, chars.vertical, "node")
+  }
+}
+
+function drawDatabaseNode(grid: FlowchartGrid, bounds: FlowchartNodeBounds, chars: BorderCharacters): void {
+  drawDiagramFrame(bounds, chars, (x, y, char) => grid.setCell(x, y, char, "database"))
+  const topRailY = bounds.top + 1
+  const bottomRailY = bounds.top + bounds.height - 2
+  for (const y of [topRailY, bottomRailY]) {
+    grid.setCell(bounds.left, y, chars.leftT, "database")
+    grid.setCell(bounds.left + bounds.width - 1, y, chars.rightT, "database")
+    for (let x = bounds.left + 1; x < bounds.left + bounds.width - 1; x++) {
+      grid.setCell(x, y, chars.horizontal, "database")
+    }
   }
 }
 

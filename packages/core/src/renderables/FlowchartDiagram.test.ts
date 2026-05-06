@@ -121,9 +121,11 @@ graph LR
 `)
 
     expect(output).toMatchInlineSnapshot(`
-      "╭────────╮          ╭─────╮          ╭───────╮
+      "                                     ╭───────╮
+      ╭────────╮          ╭─────╮          ├───────┤
       │ Client ├─────────▶│ API ├─────────▶│ Cache │
-      ╰────────╯          ╰─────╯          ╰───────╯"
+      ╰────────╯          ╰─────╯          ├───────┤
+                                           ╰───────╯"
     `)
   })
 
@@ -313,7 +315,7 @@ flowchart TD
     const cartConnectorLineIndex = lines.findIndex((line) => line.includes("┬"))
     const connectorColumn = [...lines[cartConnectorLineIndex]!].indexOf("┬")
 
-    expect(lines.length).toBeLessThanOrEqual(32)
+    expect(lines.length).toBeLessThanOrEqual(34)
     expect([...lines[cartConnectorLineIndex + 1]!][connectorColumn]).toBe("│")
   })
 

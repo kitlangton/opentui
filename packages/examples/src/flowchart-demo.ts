@@ -64,6 +64,7 @@ interface FlowchartTheme {
   node: string
   database: string
   edge: string
+  pulse: string
   label: string
   group: string
 }
@@ -75,6 +76,7 @@ interface ParsedFlowchartTheme {
   node: RGBA
   database: RGBA
   edge: RGBA
+  pulse: RGBA
   label: RGBA
   group: RGBA
 }
@@ -95,6 +97,7 @@ const THEMES: FlowchartTheme[] = [
     node: "#E4EFE8",
     database: "#E4EFE8",
     edge: "#86E1C8",
+    pulse: "#DDFFF6",
     label: "#86E1C8",
     group: "#5D766B",
   },
@@ -106,6 +109,7 @@ const THEMES: FlowchartTheme[] = [
     node: "#E7EDF5",
     database: "#E7EDF5",
     edge: "#7DD3FC",
+    pulse: "#E0F2FE",
     label: "#BAE6FD",
     group: "#64748B",
   },
@@ -117,6 +121,7 @@ const THEMES: FlowchartTheme[] = [
     node: "#E8ECF8",
     database: "#E8ECF8",
     edge: "#93C5FD",
+    pulse: "#FFE4D6",
     label: "#C4B5FD",
     group: "#68738F",
   },
@@ -131,11 +136,15 @@ let activeRenderer: CliRenderer | undefined
 let keyHandler: ((key: KeyEvent) => void) | undefined
 let resizeHandler: (() => void) | undefined
 let animationTimer: ReturnType<typeof setInterval> | undefined
+let lastPulseStepAt = 0
 let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
 const parsedThemeCache = new WeakMap<FlowchartTheme, ParsedFlowchartTheme>()
 const THEME_TRANSITION_MS = 260
 const ANIMATION_INTERVAL_MS = 16
+const PULSE_STEP_MS = 60
+const DEMO_PULSE_LENGTH = 9
+const DEMO_PULSE_GAP = 22
 const SCROLLBOX_PADDING = 1
 
 function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
@@ -149,6 +158,7 @@ function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
     node: parseColor(theme.node),
     database: parseColor(theme.database),
     edge: parseColor(theme.edge),
+    pulse: parseColor(theme.pulse),
     label: parseColor(theme.label),
     group: parseColor(theme.group),
   }
@@ -171,6 +181,7 @@ function mixTheme(from: ParsedFlowchartTheme, to: ParsedFlowchartTheme, amount: 
     node: mixColor(from.node, to.node, amount),
     database: mixColor(from.database, to.database, amount),
     edge: mixColor(from.edge, to.edge, amount),
+    pulse: mixColor(from.pulse, to.pulse, amount),
     label: mixColor(from.label, to.label, amount),
     group: mixColor(from.group, to.group, amount),
   }
@@ -190,6 +201,7 @@ function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): 
       diagram.nodeColor = colors.node
       diagram.databaseColor = colors.database
       diagram.edgeColor = colors.edge
+      diagram.pulseColor = colors.pulse
       diagram.labelColor = colors.label
       diagram.groupColor = colors.group
     })
@@ -203,14 +215,29 @@ function ensureAnimationTimer(renderer: CliRenderer): void {
   animationTimer = setInterval(() => tickAnimations(renderer), ANIMATION_INTERVAL_MS)
 }
 
-function tickAnimations(renderer: CliRenderer): void {
-  if (!themeTransition) {
-    if (animationTimer) clearInterval(animationTimer)
-    animationTimer = undefined
+function tickPulse(now: number): void {
+  if (!diagram) {
+    lastPulseStepAt = now
     return
   }
 
-  const amount = Math.min(1, (Date.now() - themeTransition.startedAt) / THEME_TRANSITION_MS)
+  if (lastPulseStepAt === 0) lastPulseStepAt = now
+  const steps = Math.floor((now - lastPulseStepAt) / PULSE_STEP_MS)
+  if (steps <= 0) return
+
+  lastPulseStepAt += steps * PULSE_STEP_MS
+  diagram.pulseFrame = (diagram.pulseFrame ?? 0) + steps
+}
+
+function tickAnimations(renderer: CliRenderer): void {
+  const now = Date.now()
+  tickPulse(now)
+
+  if (!themeTransition) {
+    return
+  }
+
+  const amount = Math.min(1, (now - themeTransition.startedAt) / THEME_TRANSITION_MS)
   applyThemeColors(renderer, mixTheme(themeTransition.from, themeTransition.to, amount))
   if (amount >= 1) themeTransition = undefined
 }
@@ -254,7 +281,7 @@ function updateFooter(): void {
   if (!footer) return
   const example = EXAMPLES[exampleIndex]!
   const theme = THEMES[themeIndex]!
-  footer.content = `${example.title} · ${theme.name} · arrows/HJKL scroll · N/P example · 1-${EXAMPLES.length} jump · T theme · Esc quit`
+  footer.content = `${example.title} · ${theme.name} · animated arrows · arrows/HJKL scroll · N/P example · 1-${EXAMPLES.length} jump · T theme · Esc quit`
 }
 
 function updateDiagram(): void {
@@ -303,9 +330,15 @@ export function run(renderer: CliRenderer): void {
     nodeColor: currentThemeColors.node,
     databaseColor: currentThemeColors.database,
     edgeColor: currentThemeColors.edge,
+    pulseColor: currentThemeColors.pulse,
     labelColor: currentThemeColors.label,
     groupColor: currentThemeColors.group,
+    pulseFrame: 0,
+    pulseLength: DEMO_PULSE_LENGTH,
+    pulseGap: DEMO_PULSE_GAP,
   })
+  lastPulseStepAt = Date.now()
+  ensureAnimationTimer(renderer)
   sizeDiagram()
   centerDiagramInViewport(renderer)
   scrollBox.add(diagram)
@@ -363,6 +396,7 @@ export function destroy(renderer: CliRenderer): void {
   keyHandler = undefined
   resizeHandler = undefined
   animationTimer = undefined
+  lastPulseStepAt = 0
   themeTransition = undefined
   currentThemeColors = undefined
 }

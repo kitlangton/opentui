@@ -324,6 +324,75 @@ flowchart LR
     expect(output).toContain("Web App")
   })
 
+  test("renders ANSI pulse styles on flowchart arrows", () => {
+    const output = renderFlowchartDiagramAnsi(
+      `
+flowchart LR
+  A --> B
+`,
+      {
+        pulseProgress: 0.5,
+        pulseLength: 5,
+        theme: {
+          edgePulse: "[pulse]",
+          edgePulseFade1: "[pulse-fade-1]",
+          edgePulseFade2: "[pulse-fade-2]",
+        },
+      },
+    )
+
+    expect(output).toContain("[pulse]")
+    expect(output).toContain("[pulse-fade-")
+  })
+
+  test("applies renderable pulse color separately from edge color", async () => {
+    const { renderer, renderOnce, captureSpans } = await createTestRenderer({ width: 60, height: 8 })
+    const pulseColor = parseColor("#f8fafc")
+    const edgeColor = parseColor("#38bdf8")
+    const diagram = new FlowchartDiagramRenderable(renderer, {
+      id: "flowchart-pulse-style",
+      content: "flowchart LR\n  A --> B",
+      edgeColor,
+      pulseColor,
+      pulseProgress: 0.5,
+      pulseLength: 5,
+    })
+
+    renderer.root.add(diagram)
+    await renderOnce()
+
+    const spans = captureSpans().lines.flatMap((line) => line.spans)
+    const pulseSpan = spans.find((span) => span.fg?.equals(pulseColor))
+    const edgeSpan = spans.find((span) => span.fg?.equals(edgeColor))
+    expect(pulseSpan).toBeTruthy()
+    expect(edgeSpan).toBeTruthy()
+
+    renderer.destroy()
+  })
+
+  test("lets pulses travel through inline edge labels", async () => {
+    const { renderer, renderOnce, captureSpans } = await createTestRenderer({ width: 90, height: 8 })
+    const pulseColor = parseColor("#f8fafc")
+    const labelColor = parseColor("#86e1c8")
+    const diagram = new FlowchartDiagramRenderable(renderer, {
+      id: "flowchart-label-pulse",
+      content: "flowchart LR\n  Gate{Ready?} -->|pass| Stage[(Stage)]",
+      labelColor,
+      pulseColor,
+      pulseProgress: 0.5,
+      pulseLength: 17,
+    })
+
+    renderer.root.add(diagram)
+    await renderOnce()
+
+    const labelLine = captureSpans().lines.find((line) => line.spans.some((span) => span.text.includes("pass")))
+    const pulsedLabelSpan = labelLine?.spans.find((span) => span.text.includes("pass") && !span.fg?.equals(labelColor))
+    expect(pulsedLabelSpan).toBeTruthy()
+
+    renderer.destroy()
+  })
+
   test("applies renderable group color separately from edges", async () => {
     const { renderer, renderOnce, captureSpans } = await createTestRenderer({ width: 80, height: 12 })
     const groupColor = parseColor("#123456")

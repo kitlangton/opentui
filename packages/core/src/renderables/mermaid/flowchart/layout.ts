@@ -1,14 +1,14 @@
 import { stringWidth } from "../../../platform/runtime.js"
 import { segmentBetween, segmentSpan } from "../../diagram-geometry.js"
-import type { FlowchartDiagramRenderOptions } from "./options.js"
-import { parseMermaidFlowchartDiagram } from "./parser.js"
 import {
   flowchartEdgeLabelLayout,
   flowchartHorizontalLabelRankGap,
   flowchartLabelWidth,
   flowchartVerticalBranchLabelGap,
-  routeFlowchartEdges,
-} from "./routing.js"
+} from "./labels.js"
+import type { FlowchartDiagramRenderOptions } from "./options.js"
+import { parseMermaidFlowchartDiagram } from "./parser.js"
+import { routeFlowchartEdges } from "./routing.js"
 import type {
   FlowchartDiagram,
   FlowchartEdgeRoute,

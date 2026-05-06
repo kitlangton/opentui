@@ -9,6 +9,10 @@ export interface FlowchartDiagramRenderOptions {
   borderStyle?: BorderStyle
   minNodeGap?: number
   minRankGap?: number
+  pulseFrame?: number
+  pulseProgress?: number
+  pulseLength?: number
+  pulseGap?: number
 }
 
 export interface FlowchartDiagramAnsiOptions extends FlowchartDiagramRenderOptions {
@@ -20,6 +24,7 @@ export interface FlowchartDiagramOptions extends TextBufferOptions, FlowchartDia
   nodeColor?: ColorInput
   databaseColor?: ColorInput
   edgeColor?: ColorInput
+  pulseColor?: ColorInput
   labelColor?: ColorInput
   groupColor?: ColorInput
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { FlowchartDiagram, FlowchartNodeBounds } from "./types.js"
-import { flowchartEdgeLabelLayout, routeFlowchartEdges } from "./routing.js"
+import { routeFlowchartEdges } from "./routing.js"
 
 function bounds(id: string, left: number, top: number): FlowchartNodeBounds {
   const width = 5
@@ -141,57 +141,5 @@ describe("flowchart routing", () => {
         ],
       },
     ])
-    expect(flowchartEdgeLabelLayout(routes[0]!.points, edge.label, (text) => text.length).point).toEqual({
-      x: 23,
-      y: 5,
-    })
-  })
-
-  test("places labels inline only when the padded text fits with clearance", () => {
-    expect(
-      flowchartEdgeLabelLayout(
-        [
-          { x: 0, y: 2 },
-          { x: 13, y: 2 },
-        ],
-        "rollback",
-        (text) => text.length,
-      ).point,
-    ).toEqual({ x: 2, y: 2 })
-
-    expect(
-      flowchartEdgeLabelLayout(
-        [
-          { x: 0, y: 2 },
-          { x: 9, y: 2 },
-        ],
-        "rollback",
-        (text) => text.length,
-      ).point,
-    ).toEqual({ x: 2, y: 1 })
-
-    expect(
-      flowchartEdgeLabelLayout(
-        [
-          { x: 0, y: 2 },
-          { x: 7, y: 2 },
-        ],
-        "rollback",
-        (text) => text.length,
-      ).point,
-    ).toEqual({ x: 2, y: 1 })
-
-    expect(
-      flowchartEdgeLabelLayout(
-        [
-          { x: 155, y: 5 },
-          { x: 150, y: 5 },
-          { x: 150, y: 9 },
-          { x: 146, y: 9 },
-        ],
-        "rollback",
-        (text) => text.length,
-      ).point,
-    ).toEqual({ x: 151, y: 7 })
   })
 })

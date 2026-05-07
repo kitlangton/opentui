@@ -1,4 +1,5 @@
 import { BorderChars, type BorderCharacters, type BorderStyle } from "../../../lib/border.js"
+import { diagramRadialCellColorLevel } from "../../diagram-color-map.js"
 import { orthogonalPathPoints, walkOrthogonalSegment } from "../../diagram-geometry.js"
 import { DiagramCanvas, type DiagramCanvasCell } from "../../diagram-canvas.js"
 import { diagramPulseLevel, visitDiagramPulsePath } from "../../diagram-pulse.js"
@@ -46,6 +47,7 @@ import type {
 } from "./types.js"
 
 export const DEFAULT_BORDER_STYLE = "rounded" satisfies BorderStyle
+type FlowchartPulseStyle = FlowchartEdgePulseStyle | FlowchartActiveEdgePulseStyle
 const ACTIVE_EDGE_HEAD_AHEAD = 2
 const ACTIVE_EDGE_TRAIL_LENGTH = 7
 const EDGE_DRAWING_STYLES = new Set<FlowchartCellStyle>([
@@ -89,16 +91,6 @@ function setNodeText(
   }
 }
 
-function nodeColorLevelForCell(bounds: FlowchartNodeBounds, x: number, y: number, border = false): number {
-  const halfWidth = Math.max(1, (bounds.width - 1) / 2)
-  const halfHeight = Math.max(1, (bounds.height - 1) / 2)
-  const dx = (x - bounds.centerX) / halfWidth
-  const dy = (y - bounds.centerY) / halfHeight
-  const distance = Math.sqrt(dx * dx + dy * dy)
-  const level = Math.max(0, Math.min(5, Math.round((1 - Math.min(1, distance)) * 5)))
-  return border ? Math.min(1, level) : level
-}
-
 function nodeMetadataForCell(
   bounds: FlowchartNodeBounds,
   nodeId: string,
@@ -106,7 +98,7 @@ function nodeMetadataForCell(
   y: number,
   border = false,
 ): FlowchartCellMetadata {
-  const key = flowchartNodeColorKey(nodeId, nodeColorLevelForCell(bounds, x, y, border))
+  const key = flowchartNodeColorKey(nodeId, diagramRadialCellColorLevel(bounds, x, y, border))
   return { nodeId: key, bgNodeId: key }
 }
 
@@ -342,13 +334,15 @@ function drawActiveRouteProgress(
     const pathIndex = cutoff + offset
     if (pathIndex < 0 || pathIndex >= path.length) continue
     const point = path[pathIndex]!
-    setFlowchartActivePulseCell(
+    setFlowchartPulseCell(
       grid,
       point.x,
       point.y,
       Math.abs(offset),
       radius,
       Math.min(pathIndex, path.length - 1 - pathIndex),
+      ACTIVE_EDGE_PULSE_STYLES,
+      isEdgePulseTargetStyle,
     )
   }
 }
@@ -377,78 +371,66 @@ function drawActiveRouteGlimmer(
     pulseLength,
     pulseGap,
     visit: ([x, y], distance, radius, edgeDistance) =>
-      setFlowchartActivePulseCell(grid, x, y, distance, radius, edgeDistance),
+      setFlowchartPulseCell(
+        grid,
+        x,
+        y,
+        distance,
+        radius,
+        edgeDistance,
+        ACTIVE_EDGE_PULSE_STYLES,
+        isEdgePulseTargetStyle,
+      ),
   })
 }
 
-function flowchartPulseStyleLevel(style: FlowchartCellStyle | undefined): number {
+function flowchartPulseStyleLevel(
+  style: FlowchartCellStyle | undefined,
+  styles: readonly FlowchartPulseStyle[],
+): number {
   if (!style) return 0
-  const index = (EDGE_PULSE_STYLES as readonly FlowchartCellStyle[]).indexOf(style)
+  const index = (styles as readonly FlowchartCellStyle[]).indexOf(style)
   return index >= 0 ? index + 1 : 0
 }
 
-function flowchartActivePulseStyleLevel(style: FlowchartCellStyle | undefined): number {
-  if (!style) return 0
-  const index = (ACTIVE_EDGE_PULSE_STYLES as readonly FlowchartCellStyle[]).indexOf(style)
-  return index >= 0 ? index + 1 : 0
-}
-
-function flowchartPulseCellStyle(
+function flowchartPulseCellStyle<Style extends FlowchartPulseStyle>(
+  styles: readonly Style[],
   distance: number,
   radius: number,
   edgeDistance: number,
   char: string,
-): { style: FlowchartEdgePulseStyle; level: number } {
+): { style: Style; level: number } {
   const level = diagramPulseLevel(distance, radius, edgeDistance, "─│━┃".includes(char))
-  return { style: EDGE_PULSE_STYLES[level - 1]!, level }
-}
-
-function flowchartActivePulseCellStyle(
-  distance: number,
-  radius: number,
-  edgeDistance: number,
-  char: string,
-): { style: FlowchartActiveEdgePulseStyle; level: number } {
-  const level = diagramPulseLevel(distance, radius, edgeDistance, "─│━┃".includes(char))
-  return { style: ACTIVE_EDGE_PULSE_STYLES[level - 1]!, level }
+  return { style: styles[level - 1]!, level }
 }
 
 function isFlowchartPulseTargetStyle(style: FlowchartCellStyle | undefined): boolean {
   return style
-    ? style !== "activeEdge" && flowchartActivePulseStyleLevel(style) === 0 && EDGE_DRAWING_STYLES.has(style)
+    ? style !== "activeEdge" &&
+        flowchartPulseStyleLevel(style, ACTIVE_EDGE_PULSE_STYLES) === 0 &&
+        EDGE_DRAWING_STYLES.has(style)
     : false
 }
 
-function setFlowchartPulseCell(
+function isEdgePulseTargetStyle(style: FlowchartCellStyle | undefined): boolean {
+  return style ? EDGE_DRAWING_STYLES.has(style) : false
+}
+
+function setFlowchartPulseCell<Style extends FlowchartPulseStyle>(
   grid: FlowchartGrid,
   x: number,
   y: number,
   distance: number,
   radius: number,
   edgeDistance: number,
-  canStyle: (style: FlowchartCellStyle | undefined) => boolean = isFlowchartPulseTargetStyle,
+  styles: readonly Style[],
+  canStyle: (style: FlowchartCellStyle | undefined) => boolean,
 ): void {
   const cell = grid.rows[y]?.[x]
   if (!cell || cell.char === " " || !canStyle(cell.style)) return
 
-  const pulse = flowchartPulseCellStyle(distance, radius, edgeDistance, cell.char)
-  if (flowchartPulseStyleLevel(cell.style) > pulse.level) return
-  cell.style = pulse.style
-}
-
-function setFlowchartActivePulseCell(
-  grid: FlowchartGrid,
-  x: number,
-  y: number,
-  distance: number,
-  radius: number,
-  edgeDistance: number,
-): void {
-  const cell = grid.rows[y]?.[x]
-  if (!cell || cell.char === " " || !EDGE_DRAWING_STYLES.has(cell.style ?? "edge")) return
-
-  const pulse = flowchartActivePulseCellStyle(distance, radius, edgeDistance, cell.char)
-  if (flowchartActivePulseStyleLevel(cell.style) > pulse.level) return
+  const pulse = flowchartPulseCellStyle(styles, distance, radius, edgeDistance, cell.char)
+  if (flowchartPulseStyleLevel(cell.style, styles) > pulse.level) return
   cell.style = pulse.style
 }
 
@@ -492,7 +474,7 @@ function drawEdgePulse(
     pulseLength,
     pulseGap,
     visit: ([x, y], distance, radius, edgeDistance) =>
-      setFlowchartPulseCell(grid, x, y, distance, radius, edgeDistance),
+      setFlowchartPulseCell(grid, x, y, distance, radius, edgeDistance, EDGE_PULSE_STYLES, isFlowchartPulseTargetStyle),
   })
 }
 

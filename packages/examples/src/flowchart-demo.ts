@@ -217,7 +217,7 @@ let lastPulseStepAt = 0
 let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
 let followTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
-let edgeReleaseTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
+let edgeReleaseTransition: { startedAt: number } | undefined
 let previousActiveNode: string | undefined
 let activeNodeFlashPending = false
 let activeNodeTransitionStartedAt = 0
@@ -231,6 +231,18 @@ const PULSE_STEP_MS = 60
 const DEMO_PULSE_LENGTH = 9
 const DEMO_PULSE_GAP = 22
 const SCROLLBOX_PADDING = 1
+
+function cancelEdgeTransitions(): void {
+  followTransition = undefined
+  edgeReleaseTransition = undefined
+}
+
+function resetAnimationState(): void {
+  cancelEdgeTransitions()
+  previousActiveNode = undefined
+  activeNodeFlashPending = false
+  activeNodeTransitionStartedAt = 0
+}
 
 function parsedTheme(theme: FlowchartTheme): ParsedFlowchartTheme {
   const cached = parsedThemeCache.get(theme)
@@ -402,7 +414,7 @@ function tickAnimations(renderer: CliRenderer): void {
         diagram!.activeEdgeProgress = undefined
       })
       followTransition = undefined
-      edgeReleaseTransition = { edge: completed, startedAt: now }
+      edgeReleaseTransition = { startedAt: now }
       previousActiveNode = undefined
       activeNodeFlashPending = true
       activeNodeTransitionStartedAt = now
@@ -483,10 +495,7 @@ function updateFooter(): void {
 
 function updateDiagram(): void {
   if (!diagram) return
-  followTransition = undefined
-  edgeReleaseTransition = undefined
-  previousActiveNode = undefined
-  activeNodeFlashPending = false
+  resetAnimationState()
   diagram.content = EXAMPLES[exampleIndex]!.content
   diagram.activeEdge = undefined
   diagram.activeEdgeProgress = undefined
@@ -583,8 +592,7 @@ export function run(renderer: CliRenderer): void {
       applyTheme(renderer)
     } else if (key.name === "tab") {
       key.preventDefault()
-      followTransition = undefined
-      edgeReleaseTransition = undefined
+      cancelEdgeTransitions()
       if (key.shift) diagram?.selectPreviousConnection()
       else diagram?.selectNextConnection()
       updateFooter()
@@ -596,7 +604,7 @@ export function run(renderer: CliRenderer): void {
       } else if (diagram.selectedConnection) {
         const selected = diagram.selectedConnection
         const now = animationNow()
-        edgeReleaseTransition = undefined
+        cancelEdgeTransitions()
         followTransition = { edge: selected, startedAt: now }
         diagram.batchUpdate(() => {
           diagram!.activeEdge = selected
@@ -630,10 +638,7 @@ export function destroy(renderer: CliRenderer): void {
   animationTimer = undefined
   lastPulseStepAt = 0
   themeTransition = undefined
-  followTransition = undefined
-  previousActiveNode = undefined
-  activeNodeFlashPending = false
-  activeNodeTransitionStartedAt = 0
+  resetAnimationState()
   currentThemeColors = undefined
 }
 

@@ -6,9 +6,22 @@ import { stringWidth } from "../platform/runtime.js"
 import type { TextChunk } from "../text-buffer.js"
 import { type RenderContext } from "../types.js"
 import { DiagramCanvas, type DiagramCanvasCell } from "./diagram-canvas.js"
+import {
+  diagramCellColorKey,
+  diagramColorMapsEqual,
+  diagramRadialCellColorLevel,
+  mappedDiagramColor,
+  normalizeDiagramColorMap,
+} from "./diagram-color-map.js"
 import { diagramArrowHead, diagramLineGlyph, drawDiagramFrame, mergeDiagramLineGlyph } from "./diagram-drawing.js"
 import type { DiagramDirection } from "./diagram-geometry.js"
-import { diagramPulseLevel, visitDiagramPulsePath } from "./diagram-pulse.js"
+import {
+  diagramPulseLevel,
+  normalizeDiagramPositiveInt,
+  normalizeDiagramPulseFrame,
+  normalizeDiagramPulseProgress,
+  visitDiagramPulsePath,
+} from "./diagram-pulse.js"
 import {
   ansiFg,
   blendColor,
@@ -186,8 +199,6 @@ const DEFAULT_PULSE_LENGTH = 5
 const DEFAULT_PULSE_GAP = 14
 const ACTIVE_TRANSITION_FRONTIER_ACTIVE_SIDE = 2
 const ACTIVE_TRANSITION_FRONTIER_INACTIVE_SIDE = 5
-const STATE_COLOR_LEVEL_SEPARATOR = "::cell:"
-const STATE_COLOR_LEVEL_COUNT = 6
 const STATE_RE = /^state\s+"([^"]+)"\s+as\s+(\S+)$/i
 const COMPOSITE_STATE_RE = /^state\s+(?:"([^"]+)"\s+as\s+)?(\S+)\s*\{$/i
 const CHOICE_STATE_RE = /^state\s+(\S+)\s+<<choice>>$/i
@@ -310,25 +321,15 @@ function createAnsiActiveTransitionPulseTheme(
   )
 }
 
-function normalizeStateColorLevel(level: number): number {
-  return Math.max(0, Math.min(STATE_COLOR_LEVEL_COUNT - 1, Math.round(level)))
-}
-
 export function stateDiagramStateColorKey(stateId: string, level: number): string {
-  return `${stateId}${STATE_COLOR_LEVEL_SEPARATOR}${normalizeStateColorLevel(level)}`
-}
-
-function baseStateColorKey(stateId: string): string {
-  const index = stateId.lastIndexOf(STATE_COLOR_LEVEL_SEPARATOR)
-  return index === -1 ? stateId : stateId.slice(0, index)
+  return diagramCellColorKey(stateId, level)
 }
 
 function stateMappedColor(
   colors: ReadonlyMap<string, RGBA> | undefined,
   stateId: string | undefined,
 ): RGBA | undefined {
-  if (!stateId) return undefined
-  return colors?.get(stateId) ?? colors?.get(baseStateColorKey(stateId))
+  return mappedDiagramColor(colors, stateId)
 }
 
 function transitionFadeInfo(style: StateCellStyle | undefined): TransitionFadeInfo | undefined {
@@ -470,12 +471,11 @@ function normalizeDirection(value?: string): StateDiagramDirection {
 }
 
 function normalizePulseFrame(value: number | undefined): number | undefined {
-  return value === undefined || !Number.isFinite(value) ? undefined : Math.trunc(value)
+  return normalizeDiagramPulseFrame(value)
 }
 
 function normalizePulseProgress(value: number | undefined): number | undefined {
-  if (value === undefined || !Number.isFinite(value)) return undefined
-  return Math.max(0, Math.min(1, value))
+  return normalizeDiagramPulseProgress(value)
 }
 
 function normalizeActiveTransitionMode(
@@ -484,17 +484,12 @@ function normalizeActiveTransitionMode(
   return value === "fade" ? "fade" : "reveal"
 }
 
-function normalizePositiveInt(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback
-  return Math.max(1, Math.trunc(value))
-}
-
 function normalizePulseLength(value: number | undefined): number {
-  return normalizePositiveInt(value, DEFAULT_PULSE_LENGTH)
+  return normalizeDiagramPositiveInt(value, DEFAULT_PULSE_LENGTH)
 }
 
 function normalizePulseGap(value: number | undefined): number {
-  return normalizePositiveInt(value, DEFAULT_PULSE_GAP)
+  return normalizeDiagramPositiveInt(value, DEFAULT_PULSE_GAP)
 }
 
 function isMermaidHeader(line: string): boolean {
@@ -903,18 +898,8 @@ function drawBox(
   })
 }
 
-function stateColorLevelForCell(bounds: BoxBounds, x: number, y: number, border = false): number {
-  const halfWidth = Math.max(1, (bounds.width - 1) / 2)
-  const halfHeight = Math.max(1, (bounds.height - 1) / 2)
-  const dx = (x - bounds.centerX) / halfWidth
-  const dy = (y - bounds.centerY) / halfHeight
-  const distance = Math.sqrt(dx * dx + dy * dy)
-  const level = normalizeStateColorLevel((1 - Math.min(1, distance)) * (STATE_COLOR_LEVEL_COUNT - 1))
-  return border ? Math.min(1, level) : level
-}
-
 function stateColorKeyForCell(bounds: BoxBounds, stateId: string, x: number, y: number, border = false): string {
-  return stateDiagramStateColorKey(stateId, stateColorLevelForCell(bounds, x, y, border))
+  return stateDiagramStateColorKey(stateId, diagramRadialCellColorLevel(bounds, x, y, border))
 }
 
 function fillBoxInterior(grid: StateGrid, bounds: BoxBounds, style: StateCellStyle, stateId: string): void {
@@ -1791,26 +1776,6 @@ export function renderStateDiagramAnsi(content: string, options: StateDiagramAns
   return renderGridAnsi(layoutStateDiagram(content, options), options.theme)
 }
 
-function normalizeStateColors(value: StateDiagramStateColors | undefined): Map<string, RGBA> {
-  const colors = new Map<string, RGBA>()
-  if (!value) return colors
-
-  const entries = value instanceof Map ? value.entries() : Object.entries(value)
-  for (const [stateId, color] of entries) {
-    if (color !== undefined) colors.set(stateId, parseColor(color))
-  }
-
-  return colors
-}
-
-function stateColorMapsEqual(left: ReadonlyMap<string, RGBA>, right: ReadonlyMap<string, RGBA>): boolean {
-  if (left.size !== right.size) return false
-  for (const [stateId, color] of left) {
-    if (!colorsEqual(color, right.get(stateId))) return false
-  }
-  return true
-}
-
 export class StateDiagramRenderable extends TextBufferRenderable {
   private _content: string
   private _direction?: StateDiagramDirection
@@ -1867,8 +1832,8 @@ export class StateDiagramRenderable extends TextBufferRenderable {
     this._startColor = options.startColor ? parseColor(options.startColor) : undefined
     this._endColor = options.endColor ? parseColor(options.endColor) : undefined
     this._choiceColor = options.choiceColor ? parseColor(options.choiceColor) : undefined
-    this._stateColors = normalizeStateColors(options.stateColors)
-    this._stateBgColors = normalizeStateColors(options.stateBgColors)
+    this._stateColors = normalizeDiagramColorMap(options.stateColors)
+    this._stateBgColors = normalizeDiagramColorMap(options.stateBgColors)
     this._pulseFrame = normalizePulseFrame(options.pulseFrame)
     this._pulseProgress = normalizePulseProgress(options.pulseProgress)
     this._pulseLength = normalizePulseLength(options.pulseLength)
@@ -2038,15 +2003,15 @@ export class StateDiagramRenderable extends TextBufferRenderable {
   }
 
   set stateColors(value: StateDiagramStateColors | undefined) {
-    const next = normalizeStateColors(value)
-    if (stateColorMapsEqual(this._stateColors, next)) return
+    const next = normalizeDiagramColorMap(value)
+    if (diagramColorMapsEqual(this._stateColors, next)) return
     this._stateColors = next
     this.invalidateDiagram()
   }
 
   set stateBgColors(value: StateDiagramStateColors | undefined) {
-    const next = normalizeStateColors(value)
-    if (stateColorMapsEqual(this._stateBgColors, next)) return
+    const next = normalizeDiagramColorMap(value)
+    if (diagramColorMapsEqual(this._stateBgColors, next)) return
     this._stateBgColors = next
     this.invalidateDiagram()
   }

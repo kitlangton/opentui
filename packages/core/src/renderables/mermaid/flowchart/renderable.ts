@@ -2,6 +2,7 @@ import type { BorderStyle } from "../../../lib/border.js"
 import { parseColor, RGBA, type ColorInput } from "../../../lib/RGBA.js"
 import type { RenderContext } from "../../../types.js"
 import { TextBufferRenderable } from "../../TextBufferRenderable.js"
+import { diagramColorMapsEqual, normalizeDiagramColorMap } from "../../diagram-color-map.js"
 import { colorsEqual } from "../../diagram-style.js"
 import { DEFAULT_BORDER_STYLE, renderFlowchartGrid } from "./drawing.js"
 import {
@@ -24,26 +25,6 @@ import type { FlowchartActiveEdgeSelection, FlowchartDiagram, FlowchartDirection
 interface IndexedFlowchartEdge {
   edge: FlowchartEdge
   index: number
-}
-
-function normalizeFlowchartNodeColors(value: FlowchartNodeColors | undefined): Map<string, RGBA> {
-  const colors = new Map<string, RGBA>()
-  if (!value) return colors
-
-  const entries = value instanceof Map ? value.entries() : Object.entries(value)
-  for (const [nodeId, color] of entries) {
-    if (color !== undefined) colors.set(nodeId, parseColor(color))
-  }
-
-  return colors
-}
-
-function flowchartNodeColorMapsEqual(left: ReadonlyMap<string, RGBA>, right: ReadonlyMap<string, RGBA>): boolean {
-  if (left.size !== right.size) return false
-  for (const [nodeId, color] of left) {
-    if (!colorsEqual(color, right.get(nodeId))) return false
-  }
-  return true
 }
 
 function flowchartActiveEdgesEqual(
@@ -97,8 +78,8 @@ export class FlowchartDiagramRenderable extends TextBufferRenderable {
     this._edgeColor = options.edgeColor ? parseColor(options.edgeColor) : undefined
     this._activeNodeColor = options.activeNodeColor ? parseColor(options.activeNodeColor) : undefined
     this._activeEdgeColor = options.activeEdgeColor ? parseColor(options.activeEdgeColor) : undefined
-    this._nodeColors = normalizeFlowchartNodeColors(options.nodeColors)
-    this._nodeBgColors = normalizeFlowchartNodeColors(options.nodeBgColors)
+    this._nodeColors = normalizeDiagramColorMap(options.nodeColors)
+    this._nodeBgColors = normalizeDiagramColorMap(options.nodeBgColors)
     this._pulseColor = options.pulseColor ? parseColor(options.pulseColor) : undefined
     this._labelColor = options.labelColor ? parseColor(options.labelColor) : undefined
     this._groupColor = options.groupColor ? parseColor(options.groupColor) : undefined
@@ -181,15 +162,15 @@ export class FlowchartDiagramRenderable extends TextBufferRenderable {
   }
 
   set nodeColors(value: FlowchartNodeColors | undefined) {
-    const next = normalizeFlowchartNodeColors(value)
-    if (flowchartNodeColorMapsEqual(this._nodeColors, next)) return
+    const next = normalizeDiagramColorMap(value)
+    if (diagramColorMapsEqual(this._nodeColors, next)) return
     this._nodeColors = next
     this.invalidateStyle()
   }
 
   set nodeBgColors(value: FlowchartNodeColors | undefined) {
-    const next = normalizeFlowchartNodeColors(value)
-    if (flowchartNodeColorMapsEqual(this._nodeBgColors, next)) return
+    const next = normalizeDiagramColorMap(value)
+    if (diagramColorMapsEqual(this._nodeBgColors, next)) return
     this._nodeBgColors = next
     this.invalidateStyle()
   }

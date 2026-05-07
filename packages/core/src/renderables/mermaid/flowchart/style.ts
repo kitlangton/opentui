@@ -3,8 +3,10 @@ import { RGBA, type ColorInput } from "../../../lib/RGBA.js"
 import { StyledText } from "../../../lib/styled-text.js"
 import type { TextChunk } from "../../../text-buffer.js"
 import type { DiagramCanvas, DiagramCanvasRunOptions } from "../../diagram-canvas.js"
+import { diagramCellColorKey, mappedDiagramColor } from "../../diagram-color-map.js"
 import {
   ansiFg,
+  createColorPeakAndRamp,
   createColorRampTheme,
   createAnsiRampTheme,
   createAnsiPeakAndRampTheme,
@@ -39,20 +41,8 @@ export type FlowchartDiagramAnsiTheme = Partial<Record<FlowchartCellStyle, strin
 export type FlowchartNodeColorMap = ReadonlyMap<string, RGBA>
 export type FlowchartNodeColors = Record<string, ColorInput | undefined> | ReadonlyMap<string, ColorInput | undefined>
 
-const FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR = "::cell:"
-const FLOWCHART_NODE_COLOR_LEVEL_COUNT = 6
-
-function normalizeFlowchartNodeColorLevel(level: number): number {
-  return Math.max(0, Math.min(FLOWCHART_NODE_COLOR_LEVEL_COUNT - 1, Math.round(level)))
-}
-
 export function flowchartNodeColorKey(nodeId: string, level: number): string {
-  return `${nodeId}${FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR}${normalizeFlowchartNodeColorLevel(level)}`
-}
-
-function baseFlowchartNodeColorKey(nodeId: string): string {
-  const index = nodeId.lastIndexOf(FLOWCHART_NODE_COLOR_LEVEL_SEPARATOR)
-  return index === -1 ? nodeId : nodeId.slice(0, index)
+  return diagramCellColorKey(nodeId, level)
 }
 
 export const DEFAULT_THEME_RGB = {
@@ -113,7 +103,7 @@ const DEFAULT_ANSI_THEME: Required<Record<FlowchartCellStyle, string>> = {
 }
 
 function nodeMappedColor(colors: FlowchartNodeColorMap | undefined, nodeId: string | undefined): RGBA | undefined {
-  return nodeId ? (colors?.get(nodeId) ?? colors?.get(baseFlowchartNodeColorKey(nodeId))) : undefined
+  return mappedDiagramColor(colors, nodeId)
 }
 
 function styleColor(
@@ -145,14 +135,18 @@ export function resolveFlowchartStyleColors(
     database,
     edge,
     activeEdge,
-    edgePulse,
-    activeEdgePulse,
     label: colors.label ?? rgba(DEFAULT_THEME_RGB.label),
     group: colors.group ?? rgba(DEFAULT_THEME_RGB.group),
     ...createColorRampTheme(NODE_EDGE_FADE_STYLES, node, edge),
     ...createColorRampTheme(DATABASE_EDGE_FADE_STYLES, database, edge),
-    ...createColorRampTheme(EDGE_PULSE_FADE_STYLES, edge, edgePulse),
-    ...createColorRampTheme(ACTIVE_EDGE_PULSE_FADE_STYLES, activeEdge, activeEdgePulse),
+    ...(createColorPeakAndRamp("edgePulse", EDGE_PULSE_FADE_STYLES, edge, edgePulse) as Record<
+      FlowchartEdgePulseStyle,
+      RGBA
+    >),
+    ...(createColorPeakAndRamp("activeEdgePulse", ACTIVE_EDGE_PULSE_FADE_STYLES, activeEdge, activeEdgePulse) as Record<
+      FlowchartActiveEdgePulseStyle,
+      RGBA
+    >),
   }
 }
 

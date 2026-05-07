@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
+  diagramBoundsFromBounds,
+  diagramBoundsFromPoints,
+  diagramBoundsFromRect,
   boundsSidePoint,
   directionBetween,
   lane,
@@ -9,6 +12,7 @@ import {
   pathViaLane,
   point,
   segmentsOf,
+  translateDiagramBounds,
   walkOrthogonalSegment,
 } from "./diagram-geometry.js"
 
@@ -29,6 +33,30 @@ describe("diagram geometry", () => {
     expect(boundsSidePoint(bounds, "right")).toEqual(point(18, 6))
     expect(boundsSidePoint(bounds, "top", "border")).toEqual(point(14, 4))
     expect(boundsSidePoint(bounds, "bottom")).toEqual(point(14, 9))
+  })
+
+  test("bounds helpers create, translate, and union bounds", () => {
+    const bounds = diagramBoundsFromRect(2, 3, 5, 4)
+
+    expect(bounds).toEqual({ left: 2, top: 3, width: 5, height: 4, centerX: 4, centerY: 5 })
+    translateDiagramBounds(bounds, 3, -1)
+    expect(bounds).toEqual({ left: 5, top: 2, width: 5, height: 4, centerX: 7, centerY: 4 })
+    expect(diagramBoundsFromBounds([bounds, diagramBoundsFromRect(0, 0, 2, 2)])).toEqual({
+      left: 0,
+      top: 0,
+      width: 10,
+      height: 6,
+      centerX: 5,
+      centerY: 3,
+    })
+    expect(diagramBoundsFromPoints([point(2, 2), point(4, 5)])).toEqual({
+      left: 2,
+      top: 2,
+      width: 3,
+      height: 4,
+      centerX: 3,
+      centerY: 4,
+    })
   })
 
   test("paths compose through lanes while removing duplicate joints", () => {

@@ -10,6 +10,20 @@ export interface DiagramPulsePathOptions {
   visit: (point: DiagramPulsePoint, distance: number, radius: number, edgeDistance: number) => void
 }
 
+export function normalizeDiagramPulseFrame(value: number | undefined): number | undefined {
+  return value === undefined || !Number.isFinite(value) ? undefined : Math.trunc(value)
+}
+
+export function normalizeDiagramPulseProgress(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined
+  return Math.max(0, Math.min(1, value))
+}
+
+export function normalizeDiagramPositiveInt(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.max(1, Math.trunc(value))
+}
+
 export function diagramPulseLevel(
   distance: number,
   radius: number,

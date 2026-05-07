@@ -2,11 +2,15 @@ import { ANSI } from "../ansi.js"
 import { BorderChars, type BorderStyle } from "../lib/border.js"
 import { StyledText } from "../lib/styled-text.js"
 import { isCssColorName, parseColor, RGBA, type ColorInput } from "../lib/RGBA.js"
-import { stringWidth } from "../platform/runtime.js"
 import type { TextChunk } from "../text-buffer.js"
 import { type RenderContext } from "../types.js"
 import { DiagramCanvas } from "./diagram-canvas.js"
-import { diagramPulseLevel, visitDiagramPulsePath } from "./diagram-pulse.js"
+import {
+  diagramPulseLevel,
+  normalizeDiagramPositiveInt,
+  normalizeDiagramPulseFrame,
+  visitDiagramPulsePath,
+} from "./diagram-pulse.js"
 import {
   ansiBg,
   ansiFg,
@@ -21,6 +25,7 @@ import {
   type DiagramFadeStep,
   type DiagramRgb,
 } from "./diagram-style.js"
+import { diagramTextWidth } from "./diagram-text.js"
 import { TextBufferRenderable, type TextBufferOptions } from "./TextBufferRenderable.js"
 
 export interface SequenceParticipant {
@@ -215,7 +220,7 @@ function createAnsiPulseTheme(
 }
 
 function visualLength(value: string): number {
-  return stringWidth(value)
+  return diagramTextWidth(value)
 }
 
 function stripQuotes(value: string): string {
@@ -251,17 +256,15 @@ function arrowHeadX(toX: number, direction: 1 | -1, head: SequenceArrowHead | un
 }
 
 function normalizePulseFrame(value: number | undefined): number | undefined {
-  return value === undefined || !Number.isFinite(value) ? undefined : Math.trunc(value)
+  return normalizeDiagramPulseFrame(value)
 }
 
 function normalizePulseLength(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) return DEFAULT_PULSE_LENGTH
-  return Math.max(1, Math.trunc(value))
+  return normalizeDiagramPositiveInt(value, DEFAULT_PULSE_LENGTH)
 }
 
 function normalizePulseGap(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) return DEFAULT_PULSE_GAP
-  return Math.max(1, Math.trunc(value))
+  return normalizeDiagramPositiveInt(value, DEFAULT_PULSE_GAP)
 }
 
 function isBoxColorToken(value: string): boolean {

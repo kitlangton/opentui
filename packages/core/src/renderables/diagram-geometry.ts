@@ -66,6 +66,35 @@ export function point(x: number, y: number): DiagramPoint {
   return { x, y }
 }
 
+export function diagramBoundsFromRect(left: number, top: number, width: number, height: number): DiagramBounds {
+  return { left, top, width, height, centerX: left + Math.floor(width / 2), centerY: top + Math.floor(height / 2) }
+}
+
+export function translateDiagramBounds(bounds: DiagramBounds, dx: number, dy: number): void {
+  bounds.left += dx
+  bounds.top += dy
+  bounds.centerX += dx
+  bounds.centerY += dy
+}
+
+export function diagramBoundsFromBounds(bounds: readonly DiagramBounds[]): DiagramBounds | undefined {
+  if (bounds.length === 0) return undefined
+  const left = Math.min(...bounds.map((bound) => bound.left))
+  const top = Math.min(...bounds.map((bound) => bound.top))
+  const right = Math.max(...bounds.map((bound) => bound.left + bound.width))
+  const bottom = Math.max(...bounds.map((bound) => bound.top + bound.height))
+  return diagramBoundsFromRect(left, top, right - left, bottom - top)
+}
+
+export function diagramBoundsFromPoints(points: readonly DiagramPoint[]): DiagramBounds | undefined {
+  if (points.length === 0) return undefined
+  const left = Math.min(...points.map((point) => point.x))
+  const top = Math.min(...points.map((point) => point.y))
+  const right = Math.max(...points.map((point) => point.x))
+  const bottom = Math.max(...points.map((point) => point.y))
+  return diagramBoundsFromRect(left, top, right - left + 1, bottom - top + 1)
+}
+
 export function coordinate(point: DiagramPoint, axis: DiagramAxis): number {
   return point[axis]
 }

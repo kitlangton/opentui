@@ -1,5 +1,11 @@
-import { stringWidth } from "../../../platform/runtime.js"
-import { segmentBetween, segmentSpan } from "../../diagram-geometry.js"
+import {
+  diagramBoundsFromBounds,
+  diagramBoundsFromPoints,
+  segmentBetween,
+  segmentSpan,
+  translateDiagramBounds,
+} from "../../diagram-geometry.js"
+import { diagramTextWidth, measureDiagramTextBox } from "../../diagram-text.js"
 import {
   flowchartEdgeLabelLayout,
   flowchartHorizontalLabelRankGap,
@@ -68,7 +74,7 @@ function isHorizontalDirection(direction: FlowchartDirection): boolean {
 }
 
 export function visualLength(value: string): number {
-  return stringWidth(value)
+  return diagramTextWidth(value)
 }
 
 export function normalizePositiveInt(value: number | undefined, fallback: number): number {
@@ -76,13 +82,9 @@ export function normalizePositiveInt(value: number | undefined, fallback: number
   return Math.max(1, Math.trunc(value))
 }
 
-function splitLines(value: string): string[] {
-  return value.split(/<br\s*\/?>/i).map((line) => line.trim())
-}
-
 function nodeSize(node: FlowchartNode): FlowchartNodeSize {
-  const lines = splitLines(node.label)
-  const innerWidth = Math.max(...lines.map(visualLength), 1)
+  const { lines, width } = measureDiagramTextBox(node.label, { paddingX: 2 })
+  const innerWidth = width - 4
   if (node.shape === "decision") {
     const width = innerWidth + 6
     return { width: width % 2 === 0 ? width + 1 : width, height: Math.max(5, lines.length + 4), lines }
@@ -128,10 +130,7 @@ function rankNodes(diagram: FlowchartDiagram): Map<string, number> {
 }
 
 function translateBounds(bounds: FlowchartBounds, dx: number, dy: number): void {
-  bounds.left += dx
-  bounds.top += dy
-  bounds.centerX += dx
-  bounds.centerY += dy
+  translateDiagramBounds(bounds, dx, dy)
 }
 
 function translateRoutes(routes: readonly FlowchartEdgeRoute[], dx: number, dy: number): void {
@@ -144,14 +143,7 @@ function translateRoutes(routes: readonly FlowchartEdgeRoute[], dx: number, dy: 
 }
 
 function boundsFromChildren(children: readonly FlowchartBounds[]): FlowchartBounds | undefined {
-  if (children.length === 0) return undefined
-  const left = Math.min(...children.map((child) => child.left))
-  const top = Math.min(...children.map((child) => child.top))
-  const right = Math.max(...children.map((child) => child.left + child.width))
-  const bottom = Math.max(...children.map((child) => child.top + child.height))
-  const width = right - left
-  const height = bottom - top
-  return { left, top, width, height, centerX: left + Math.floor(width / 2), centerY: top + Math.floor(height / 2) }
+  return diagramBoundsFromBounds(children)
 }
 
 function subgraphBoundFromChildren(
@@ -240,14 +232,7 @@ function chooseSubgraphLabelSide(
 }
 
 function pathBounds(points: readonly { x: number; y: number }[]): FlowchartBounds | undefined {
-  if (points.length === 0) return undefined
-  const left = Math.min(...points.map((point) => point.x))
-  const top = Math.min(...points.map((point) => point.y))
-  const right = Math.max(...points.map((point) => point.x))
-  const bottom = Math.max(...points.map((point) => point.y))
-  const width = right - left + 1
-  const height = bottom - top + 1
-  return { left, top, width, height, centerX: left + Math.floor(width / 2), centerY: top + Math.floor(height / 2) }
+  return diagramBoundsFromPoints(points)
 }
 
 function labelBounds(route: FlowchartEdgeRoute): FlowchartBounds | undefined {

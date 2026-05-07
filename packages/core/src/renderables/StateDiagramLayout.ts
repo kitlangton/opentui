@@ -1,4 +1,5 @@
-import { stringWidth } from "../platform/runtime.js"
+import { translateDiagramBounds } from "./diagram-geometry.js"
+import { diagramTextWidth, measureDiagramTextBox, splitDiagramLines } from "./diagram-text.js"
 import type {
   StateDiagram,
   StateDiagramCompositeState,
@@ -34,11 +35,11 @@ export interface StateDiagramLayoutOptions {
 }
 
 function visualLength(value: string): number {
-  return stringWidth(value)
+  return diagramTextWidth(value)
 }
 
 export function splitStateDiagramLines(value: string): string[] {
-  return value.split(/<br\s*\/?>/i).map((line) => line.trim())
+  return splitDiagramLines(value)
 }
 
 function computeRanks(diagram: StateDiagram): Map<string, number> {
@@ -125,9 +126,7 @@ function computeMainPath(diagram: StateDiagram): string[] {
 
 function stateSize(state: StateDiagramState): { width: number; height: number; lines: string[] } {
   if (state.kind !== "state") return { width: 1, height: 1, lines: [state.label] }
-  const lines = splitStateDiagramLines(state.label)
-  const innerWidth = Math.max(...lines.map(visualLength), 1)
-  return { width: innerWidth + 4, height: lines.length + 2, lines }
+  return measureDiagramTextBox(state.label, { paddingX: 2, paddingY: 1 })
 }
 
 function noteLines(note: StateDiagramNote): string[] {
@@ -137,7 +136,7 @@ function noteLines(note: StateDiagramNote): string[] {
 
 function noteSize(note: StateDiagramNote): { width: number; height: number; lines: string[] } {
   const lines = noteLines(note)
-  const innerWidth = Math.max(...lines.map(visualLength), 1)
+  const innerWidth = Math.max(...lines.map(diagramTextWidth), 1)
   return { width: innerWidth + 4, height: lines.length + 2, lines }
 }
 
@@ -150,10 +149,7 @@ function emptyLayout(
 
 function shiftBounds(bounds: Iterable<StateDiagramBoxBounds>, dx: number, dy: number): void {
   for (const bound of bounds) {
-    bound.left += dx
-    bound.top += dy
-    bound.centerX += dx
-    bound.centerY += dy
+    translateDiagramBounds(bound, dx, dy)
   }
 }
 

@@ -649,7 +649,7 @@ flowchart TD
   })
 
   test("renders active flowchart edge glimmer separately from global pulses", () => {
-    const output = renderFlowchartDiagramAnsi(
+    const grid = renderFlowchartGrid(
       `
 flowchart LR
   A[A] --> B[B]
@@ -659,25 +659,16 @@ flowchart LR
         activeEdge: { from: "A", to: "B" },
         pulseFrame: 0,
         pulseLength: 5,
-        theme: {
-          activeEdge: "[active-edge]",
-          activeEdgePulse: "[active-pulse]",
-          activeEdgePulseFade1: "[active-pulse-fade-1]",
-          activeEdgePulseFade2: "[active-pulse-fade-2]",
-          activeEdgePulseFade3: "[active-pulse-fade-3]",
-          activeEdgePulseFade4: "[active-pulse-fade-4]",
-          activeEdgePulseFade5: "[active-pulse-fade-5]",
-          edgePulse: "[global-pulse]",
-        },
       },
     )
+    const styles = grid.rows.flat().map((cell) => cell.style)
 
-    expect(output).toContain("[active-pulse-fade-1]")
-    expect(output).not.toContain("[global-pulse]")
+    expect(styles.some((style) => style?.startsWith("activeEdgePulse"))).toBe(true)
+    expect(styles.some((style) => style?.startsWith("edgePulse"))).toBe(false)
   })
 
   test("renders active flowchart edge progress as a glimmering trail", () => {
-    const output = renderFlowchartDiagramAnsi(
+    const grid = renderFlowchartGrid(
       `
 flowchart LR
   A[A] --> B[B]
@@ -686,19 +677,12 @@ flowchart LR
         activeNode: "A",
         activeEdge: { from: "A", to: "B" },
         activeEdgeProgress: 0.5,
-        theme: {
-          activeEdge: "[active-edge]",
-          activeEdgePulse: "[active-pulse]",
-          activeEdgePulseFade1: "[active-pulse-fade-1]",
-          activeEdgePulseFade2: "[active-pulse-fade-2]",
-          activeEdgePulseFade3: "[active-pulse-fade-3]",
-          activeEdgePulseFade4: "[active-pulse-fade-4]",
-          activeEdgePulseFade5: "[active-pulse-fade-5]",
-        },
       },
     )
+    const styles = grid.rows.flat().map((cell) => cell.style)
 
-    expect(output).toContain("[active-pulse-fade-")
+    expect(styles.some((style) => style?.startsWith("activeEdgePulse"))).toBe(true)
+    expect(styles.some((style) => style === "activeEdge")).toBe(true)
   })
 
   test("applies flowchart node foreground and background color maps", () => {

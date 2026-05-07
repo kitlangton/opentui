@@ -68,11 +68,11 @@ export const HEY_JUDE_FLOWCHART = `flowchart TD
     direction LR
     Dont[don't]
     Bad[make it bad]
-    SadSong[take a sad song]
+    SadSong[take a sad song<br/>and make it better]
     Afraid[be afraid]
-    GetHer[go out and get her]
+    GetHer[you were made<br/>to go out and get her]
     Down[let me down]
-    GetHerNow[now go get her]
+    GetHerNow[you have found her,<br/>now go and get her]
     Dont --> Bad
     Bad --> SadSong
     Dont --> Afraid
@@ -111,6 +111,7 @@ export const HEY_JUDE_FLOWCHART = `flowchart TD
 
   MakeBetter --> Better[better better better better waaaaaa]
   Better --> Na[na]
+  Na --> Na
   Na --> Title`
 
 interface FlowchartExample {
@@ -216,6 +217,7 @@ let lastPulseStepAt = 0
 let currentThemeColors: ParsedFlowchartTheme | undefined
 let themeTransition: { from: ParsedFlowchartTheme; to: ParsedFlowchartTheme; startedAt: number } | undefined
 let followTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
+let edgeReleaseTransition: { edge: FlowchartActiveEdgeSelection; startedAt: number } | undefined
 let previousActiveNode: string | undefined
 let activeNodeFlashPending = false
 let activeNodeTransitionStartedAt = 0
@@ -268,11 +270,15 @@ function mixTheme(from: ParsedFlowchartTheme, to: ParsedFlowchartTheme, amount: 
 }
 
 function animatedActiveEdgeColor(colors: ParsedFlowchartTheme, now = animationNow()): RGBA {
+  if (edgeReleaseTransition) {
+    const releaseAmount = easeOutCubic((now - edgeReleaseTransition.startedAt) / EDGE_FADE_MS)
+    return mixColor(colors.activeEdge, colors.edge, releaseAmount)
+  }
+  if (followTransition) return colors.activeEdge
+
   const startedAt = followTransition?.startedAt ?? activeNodeTransitionStartedAt
   const fadeAmount = easeOutCubic((now - startedAt) / EDGE_FADE_MS)
-  const baseColor = mixColor(colors.edge, colors.activeEdge, fadeAmount)
-  const pulseAmount = followTransition ? ((Math.sin(now / 68) + 1) / 2) * 0.68 : 0
-  return pulseAmount > 0 ? mixColor(baseColor, colors.activeNode, pulseAmount) : baseColor
+  return mixColor(colors.edge, colors.activeEdge, fadeAmount)
 }
 
 function animatedNodeColors(colors: ParsedFlowchartTheme, now = animationNow()): Record<string, RGBA> | undefined {
@@ -335,7 +341,7 @@ function applyAnimatedColors(now = animationNow()): void {
 }
 
 function hasAnimatedColors(): boolean {
-  return Boolean(followTransition || previousActiveNode || activeNodeFlashPending)
+  return Boolean(followTransition || edgeReleaseTransition || previousActiveNode || activeNodeFlashPending)
 }
 
 function applyThemeColors(renderer: CliRenderer, colors: ParsedFlowchartTheme): void {
@@ -388,16 +394,34 @@ function tickAnimations(renderer: CliRenderer): void {
 
   if (followTransition && diagram) {
     const amount = Math.min(1, (now - followTransition.startedAt) / FOLLOW_TRANSITION_MS)
-    diagram.batchUpdate(() => {
-      diagram!.activeEdge = followTransition!.edge
-      diagram!.activeEdgeProgress = amount
-    })
     if (amount >= 1) {
-      diagram.followSelectedConnection()
+      const completed = followTransition.edge
+      diagram.batchUpdate(() => {
+        diagram!.followSelectedConnection()
+        diagram!.activeEdge = completed
+        diagram!.activeEdgeProgress = undefined
+      })
       followTransition = undefined
+      edgeReleaseTransition = { edge: completed, startedAt: now }
       previousActiveNode = undefined
       activeNodeFlashPending = true
       activeNodeTransitionStartedAt = now
+      updateFooter()
+    } else {
+      const edgeProgress = easeOutCubic(amount)
+      diagram.batchUpdate(() => {
+        diagram!.activeEdge = followTransition!.edge
+        diagram!.activeEdgeProgress = edgeProgress
+      })
+    }
+  }
+
+  if (edgeReleaseTransition && diagram) {
+    const amount = Math.min(1, (now - edgeReleaseTransition.startedAt) / EDGE_FADE_MS)
+    if (amount >= 1) {
+      edgeReleaseTransition = undefined
+      activeNodeTransitionStartedAt = now
+      diagram.activeEdge = undefined
       updateFooter()
     }
   }
@@ -460,6 +484,7 @@ function updateFooter(): void {
 function updateDiagram(): void {
   if (!diagram) return
   followTransition = undefined
+  edgeReleaseTransition = undefined
   previousActiveNode = undefined
   activeNodeFlashPending = false
   diagram.content = EXAMPLES[exampleIndex]!.content
@@ -559,6 +584,7 @@ export function run(renderer: CliRenderer): void {
     } else if (key.name === "tab") {
       key.preventDefault()
       followTransition = undefined
+      edgeReleaseTransition = undefined
       if (key.shift) diagram?.selectPreviousConnection()
       else diagram?.selectNextConnection()
       updateFooter()
@@ -570,6 +596,7 @@ export function run(renderer: CliRenderer): void {
       } else if (diagram.selectedConnection) {
         const selected = diagram.selectedConnection
         const now = animationNow()
+        edgeReleaseTransition = undefined
         followTransition = { edge: selected, startedAt: now }
         diagram.batchUpdate(() => {
           diagram!.activeEdge = selected

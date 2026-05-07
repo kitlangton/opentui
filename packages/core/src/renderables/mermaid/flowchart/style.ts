@@ -22,7 +22,13 @@ export type FlowchartDatabaseEdgeFadeStyle = `databaseEdgeFade${DiagramFadeStep}
 export type FlowchartEdgeFadeStyle = FlowchartNodeEdgeFadeStyle | FlowchartDatabaseEdgeFadeStyle
 export type FlowchartEdgePulseFadeStyle = `edgePulseFade${DiagramFadeStep}`
 export type FlowchartEdgePulseStyle = "edgePulse" | FlowchartEdgePulseFadeStyle
-export type FlowchartCellStyle = FlowchartBaseCellStyle | FlowchartEdgeFadeStyle | FlowchartEdgePulseStyle
+export type FlowchartActiveEdgePulseFadeStyle = `activeEdgePulseFade${DiagramFadeStep}`
+export type FlowchartActiveEdgePulseStyle = "activeEdgePulse" | FlowchartActiveEdgePulseFadeStyle
+export type FlowchartCellStyle =
+  | FlowchartBaseCellStyle
+  | FlowchartEdgeFadeStyle
+  | FlowchartEdgePulseStyle
+  | FlowchartActiveEdgePulseStyle
 export interface FlowchartCellMetadata {
   nodeId?: string
   bgNodeId?: string
@@ -56,13 +62,15 @@ export const DEFAULT_THEME_RGB = {
   edge: [134, 225, 200],
   activeEdge: [221, 255, 246],
   edgePulse: [221, 255, 246],
+  activeEdgePulse: [255, 232, 205],
   label: [134, 225, 200],
   group: [76, 99, 89],
-} as const satisfies Record<FlowchartBaseCellStyle | "edgePulse", DiagramRgb>
+} as const satisfies Record<FlowchartBaseCellStyle | "edgePulse" | "activeEdgePulse", DiagramRgb>
 
 export const NODE_EDGE_FADE_STYLES = numberedStyleKeys("nodeEdgeFade", DIAGRAM_FADE_STEPS)
 export const DATABASE_EDGE_FADE_STYLES = numberedStyleKeys("databaseEdgeFade", DIAGRAM_FADE_STEPS)
 export const EDGE_PULSE_FADE_STYLES = numberedStyleKeys("edgePulseFade", DIAGRAM_FADE_STEPS)
+export const ACTIVE_EDGE_PULSE_FADE_STYLES = numberedStyleKeys("activeEdgePulseFade", DIAGRAM_FADE_STEPS)
 export const EDGE_PULSE_STYLES = [
   "edgePulseFade1",
   "edgePulseFade2",
@@ -71,6 +79,14 @@ export const EDGE_PULSE_STYLES = [
   "edgePulseFade5",
   "edgePulse",
 ] as const satisfies readonly FlowchartEdgePulseStyle[]
+export const ACTIVE_EDGE_PULSE_STYLES = [
+  "activeEdgePulseFade1",
+  "activeEdgePulseFade2",
+  "activeEdgePulseFade3",
+  "activeEdgePulseFade4",
+  "activeEdgePulseFade5",
+  "activeEdgePulse",
+] as const satisfies readonly FlowchartActiveEdgePulseStyle[]
 
 const DEFAULT_ANSI_THEME: Required<Record<FlowchartCellStyle, string>> = {
   node: ansiFg(DEFAULT_THEME_RGB.node),
@@ -87,6 +103,12 @@ const DEFAULT_ANSI_THEME: Required<Record<FlowchartCellStyle, string>> = {
     EDGE_PULSE_FADE_STYLES,
     DEFAULT_THEME_RGB.edge,
     DEFAULT_THEME_RGB.edgePulse,
+  ),
+  ...createAnsiPeakAndRampTheme(
+    "activeEdgePulse",
+    ACTIVE_EDGE_PULSE_FADE_STYLES,
+    DEFAULT_THEME_RGB.activeEdge,
+    DEFAULT_THEME_RGB.activeEdgePulse,
   ),
 }
 
@@ -116,6 +138,7 @@ export function resolveFlowchartStyleColors(
   const edge = colors.edge ?? rgba(DEFAULT_THEME_RGB.edge)
   const activeEdge = colors.activeEdge ?? rgba(DEFAULT_THEME_RGB.activeEdge)
   const edgePulse = colors.edgePulse ?? brightenColor(edge, 0.65) ?? rgba(DEFAULT_THEME_RGB.edgePulse)
+  const activeEdgePulse = colors.activeEdgePulse ?? rgba(DEFAULT_THEME_RGB.activeEdgePulse)
   return {
     node,
     activeNode,
@@ -123,11 +146,13 @@ export function resolveFlowchartStyleColors(
     edge,
     activeEdge,
     edgePulse,
+    activeEdgePulse,
     label: colors.label ?? rgba(DEFAULT_THEME_RGB.label),
     group: colors.group ?? rgba(DEFAULT_THEME_RGB.group),
     ...createColorRampTheme(NODE_EDGE_FADE_STYLES, node, edge),
     ...createColorRampTheme(DATABASE_EDGE_FADE_STYLES, database, edge),
     ...createColorRampTheme(EDGE_PULSE_FADE_STYLES, edge, edgePulse),
+    ...createColorRampTheme(ACTIVE_EDGE_PULSE_FADE_STYLES, activeEdge, activeEdgePulse),
   }
 }
 

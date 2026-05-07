@@ -23,10 +23,12 @@ import {
 } from "./options.js"
 import { flowchartDirectionBetween, flowchartSourceConnector } from "./routing.js"
 import {
+  ACTIVE_EDGE_PULSE_STYLES,
   DATABASE_EDGE_FADE_STYLES,
   EDGE_PULSE_STYLES,
   flowchartNodeColorKey,
   NODE_EDGE_FADE_STYLES,
+  type FlowchartActiveEdgePulseStyle,
   type FlowchartCellStyle,
   type FlowchartCellMetadata,
   type FlowchartEdgeFadeStyle,
@@ -44,8 +46,8 @@ import type {
 } from "./types.js"
 
 export const DEFAULT_BORDER_STYLE = "rounded" satisfies BorderStyle
-const ACTIVE_EDGE_FRONTIER_ACTIVE_SIDE = 2
-const ACTIVE_EDGE_FRONTIER_INACTIVE_SIDE = 5
+const ACTIVE_EDGE_HEAD_AHEAD = 2
+const ACTIVE_EDGE_TRAIL_LENGTH = 7
 const EDGE_DRAWING_STYLES = new Set<FlowchartCellStyle>([
   "edge",
   "activeEdge",
@@ -53,8 +55,8 @@ const EDGE_DRAWING_STYLES = new Set<FlowchartCellStyle>([
   ...NODE_EDGE_FADE_STYLES,
   ...DATABASE_EDGE_FADE_STYLES,
   ...EDGE_PULSE_STYLES,
+  ...ACTIVE_EDGE_PULSE_STYLES,
 ])
-
 function mergeFlowchartCell(
   existing: DiagramCanvasCell<FlowchartCellStyle, FlowchartCellMetadata>,
   incoming: DiagramCanvasCell<FlowchartCellStyle, FlowchartCellMetadata>,
@@ -294,47 +296,100 @@ function activeRoute(
   return undefined
 }
 
+function activeRoutePoints(
+  route: FlowchartEdgeRoute,
+  from: FlowchartNodeBounds | undefined,
+): readonly FlowchartPoint[] {
+  const sourcePoint = route.points[0]
+  return from && sourcePoint ? [{ ...flowchartSourceConnector(from, sourcePoint) }, ...route.points] : route.points
+}
+
+function styleActivePathCell(grid: FlowchartGrid, x: number, y: number, style: FlowchartCellStyle): void {
+  const cell = grid.rows[y]?.[x]
+  if (!cell || cell.char === " ") return
+  cell.style = style
+}
+
+function drawActiveRoute(grid: FlowchartGrid, route: FlowchartEdgeRoute, from: FlowchartNodeBounds | undefined): void {
+  for (const point of orthogonalPathPoints(activeRoutePoints(route, from))) {
+    styleActivePathCell(grid, point.x, point.y, "activeEdge")
+  }
+  if (route.edge.label) {
+    const label = flowchartEdgeLabelLayout(route.points, route.edge.label, visualLength)
+    grid.setText(label.point.x, label.point.y, label.text, "activeEdge")
+  }
+}
+
 function drawActiveRouteProgress(
   grid: FlowchartGrid,
   route: FlowchartEdgeRoute,
   progress: number,
   from: FlowchartNodeBounds | undefined,
 ): void {
-  const sourcePoint = route.points[0]
-  const points =
-    from && sourcePoint ? [{ ...flowchartSourceConnector(from, sourcePoint) }, ...route.points] : route.points
-  const path = orthogonalPathPoints(points)
+  const path = orthogonalPathPoints(activeRoutePoints(route, from))
   if (path.length === 0) return
 
-  const cutoff = Math.round(progress * path.length)
-  for (let index = 0; index < cutoff; index++) {
+  const cutoff = Math.max(0, Math.min(path.length - 1, Math.round(progress * (path.length - 1))))
+  for (let index = 0; index < path.length; index++) {
     const point = path[index]!
-    const cell = grid.rows[point.y]?.[point.x]
-    if (cell?.style === "activeEdge") cell.style = "edge"
+    styleActivePathCell(grid, point.x, point.y, "activeEdge")
   }
 
-  const before = ACTIVE_EDGE_FRONTIER_INACTIVE_SIDE
-  const after = ACTIVE_EDGE_FRONTIER_ACTIVE_SIDE
+  const before = ACTIVE_EDGE_TRAIL_LENGTH
+  const after = ACTIVE_EDGE_HEAD_AHEAD
   const radius = Math.max(before, after)
   for (let offset = -before; offset <= after; offset++) {
     const pathIndex = cutoff + offset
     if (pathIndex < 0 || pathIndex >= path.length) continue
     const point = path[pathIndex]!
-    setFlowchartPulseCell(
+    setFlowchartActivePulseCell(
       grid,
       point.x,
       point.y,
       Math.abs(offset),
       radius,
       Math.min(pathIndex, path.length - 1 - pathIndex),
-      isFlowchartFrontierTargetStyle,
     )
   }
+}
+
+function drawActiveRouteGlimmer(
+  grid: FlowchartGrid,
+  route: FlowchartEdgeRoute,
+  from: FlowchartNodeBounds | undefined,
+  pulseFrame: number | undefined,
+  pulseProgress: number | undefined,
+  pulseLength: number,
+  pulseGap: number,
+): void {
+  if (pulseFrame === undefined && pulseProgress === undefined) return
+  const path = orthogonalPathPoints(activeRoutePoints(route, from))
+  if (path.length === 0) return
+
+  visitDiagramPulsePath({
+    pathLength: path.length,
+    pointAt: (index) => {
+      const point = path[index]
+      return point ? [point.x, point.y] : undefined
+    },
+    pulseFrame,
+    pulseProgress,
+    pulseLength,
+    pulseGap,
+    visit: ([x, y], distance, radius, edgeDistance) =>
+      setFlowchartActivePulseCell(grid, x, y, distance, radius, edgeDistance),
+  })
 }
 
 function flowchartPulseStyleLevel(style: FlowchartCellStyle | undefined): number {
   if (!style) return 0
   const index = (EDGE_PULSE_STYLES as readonly FlowchartCellStyle[]).indexOf(style)
+  return index >= 0 ? index + 1 : 0
+}
+
+function flowchartActivePulseStyleLevel(style: FlowchartCellStyle | undefined): number {
+  if (!style) return 0
+  const index = (ACTIVE_EDGE_PULSE_STYLES as readonly FlowchartCellStyle[]).indexOf(style)
   return index >= 0 ? index + 1 : 0
 }
 
@@ -348,12 +403,20 @@ function flowchartPulseCellStyle(
   return { style: EDGE_PULSE_STYLES[level - 1]!, level }
 }
 
-function isFlowchartPulseTargetStyle(style: FlowchartCellStyle | undefined): boolean {
-  return style ? style !== "activeEdge" && EDGE_DRAWING_STYLES.has(style) : false
+function flowchartActivePulseCellStyle(
+  distance: number,
+  radius: number,
+  edgeDistance: number,
+  char: string,
+): { style: FlowchartActiveEdgePulseStyle; level: number } {
+  const level = diagramPulseLevel(distance, radius, edgeDistance, "─│━┃".includes(char))
+  return { style: ACTIVE_EDGE_PULSE_STYLES[level - 1]!, level }
 }
 
-function isFlowchartFrontierTargetStyle(style: FlowchartCellStyle | undefined): boolean {
-  return style ? EDGE_DRAWING_STYLES.has(style) : false
+function isFlowchartPulseTargetStyle(style: FlowchartCellStyle | undefined): boolean {
+  return style
+    ? style !== "activeEdge" && flowchartActivePulseStyleLevel(style) === 0 && EDGE_DRAWING_STYLES.has(style)
+    : false
 }
 
 function setFlowchartPulseCell(
@@ -370,6 +433,22 @@ function setFlowchartPulseCell(
 
   const pulse = flowchartPulseCellStyle(distance, radius, edgeDistance, cell.char)
   if (flowchartPulseStyleLevel(cell.style) > pulse.level) return
+  cell.style = pulse.style
+}
+
+function setFlowchartActivePulseCell(
+  grid: FlowchartGrid,
+  x: number,
+  y: number,
+  distance: number,
+  radius: number,
+  edgeDistance: number,
+): void {
+  const cell = grid.rows[y]?.[x]
+  if (!cell || cell.char === " " || !EDGE_DRAWING_STYLES.has(cell.style ?? "edge")) return
+
+  const pulse = flowchartActivePulseCellStyle(distance, radius, edgeDistance, cell.char)
+  if (flowchartActivePulseStyleLevel(cell.style) > pulse.level) return
   cell.style = pulse.style
 }
 
@@ -489,32 +568,6 @@ function drawSourceConnectors(
   }
 }
 
-function drawActiveSourceConnector(
-  grid: FlowchartGrid,
-  route: FlowchartEdgeRoute,
-  from: FlowchartNodeBounds,
-  sourcePoint: FlowchartPoint,
-): void {
-  const connector = flowchartSourceConnector(from, sourcePoint)
-  grid.setCell(connector.x, connector.y, connector.char, "activeEdge")
-  const routeDirection = route.points[1] ? flowchartDirectionBetween(sourcePoint, route.points[1]!) : undefined
-  const connectorDirection = flowchartDirectionBetween(sourcePoint, connector)
-  if (routeDirection && connectorDirection) {
-    const cell = grid.rows[sourcePoint.y]?.[sourcePoint.x]
-    const char = diagramLineGlyph(
-      new Set([routeDirection, connectorDirection]),
-      "rounded",
-      route.edge.style === "thick" ? "heavy" : "single",
-    )
-    if (cell) {
-      cell.char = char
-      cell.style = "activeEdge"
-    } else {
-      grid.setCell(sourcePoint.x, sourcePoint.y, char, "activeEdge")
-    }
-  }
-}
-
 export function renderFlowchartGrid(content: string, options: FlowchartDiagramRenderOptions = {}): FlowchartGrid {
   const borderStyle = options.borderStyle ?? DEFAULT_BORDER_STYLE
   const pulseFrame = normalizeFlowchartPulseFrame(options.pulseFrame)
@@ -538,16 +591,16 @@ export function renderFlowchartGrid(content: string, options: FlowchartDiagramRe
     if (bound) drawNode(grid, node, bound, borderStyle, node.id === options.activeNode)
   }
   drawSourceConnectors(grid, diagram, bounds, routes)
-  if (selectedRoute) {
-    drawRoutedEdge(grid, selectedRoute, true)
-    const sourcePoint = selectedRoute.points[0]
-    const from = bounds.get(selectedRoute.edge.from)
-    if (from && sourcePoint) {
-      drawActiveSourceConnector(grid, selectedRoute, from, sourcePoint)
-    }
-    if (activeEdgeProgress !== undefined) drawActiveRouteProgress(grid, selectedRoute, activeEdgeProgress, from)
-  }
   drawEdgePulse(grid, diagram, bounds, routes, pulseFrame, pulseProgress, pulseLength, pulseGap)
+  if (selectedRoute) {
+    const from = bounds.get(selectedRoute.edge.from)
+    if (activeEdgeProgress !== undefined) {
+      drawActiveRouteProgress(grid, selectedRoute, activeEdgeProgress, from)
+    } else {
+      drawActiveRoute(grid, selectedRoute, from)
+      drawActiveRouteGlimmer(grid, selectedRoute, from, pulseFrame, pulseProgress, pulseLength, pulseGap)
+    }
+  }
   for (const subgraph of diagram.subgraphs ?? []) {
     const bound = subgraphBounds.get(subgraph.id)
     if (bound) drawSubgraphLabel(grid, bound)

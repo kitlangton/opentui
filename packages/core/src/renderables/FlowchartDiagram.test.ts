@@ -608,6 +608,99 @@ flowchart LR
     expect(output).toContain("[active-edge]")
   })
 
+  test("styles idle active flowchart edges without changing route geometry", () => {
+    const content = `
+flowchart TD
+  A[A] --> B[B]
+  A --> C[C]
+`
+
+    expect(renderFlowchartDiagram(content, { activeEdge: { from: "A", to: "B" } })).toBe(
+      renderFlowchartDiagram(content),
+    )
+  })
+
+  test("styles active flowchart junctions and node connectors", () => {
+    const grid = renderFlowchartGrid(
+      `
+flowchart TD
+  A[A] --> B[B]
+  A --> C[C]
+`,
+      { activeEdge: { from: "A", to: "B" } },
+    )
+    const cells = grid.rows.flat()
+
+    expect(cells.some((cell) => cell.char === "┬" && cell.style === "activeEdge")).toBe(true)
+    expect(cells.some((cell) => cell.char === "┴" && cell.style === "activeEdge")).toBe(true)
+  })
+
+  test("keeps the whole active flowchart edge styled during follow progress", () => {
+    const grid = renderFlowchartGrid(
+      `
+flowchart TD
+  A[A] --> B[B]
+  A --> C[C]
+`,
+      { activeEdge: { from: "A", to: "B" }, activeEdgeProgress: 0 },
+    )
+
+    expect(grid.rows.flat().some((cell) => cell.char === "▼" && cell.style === "activeEdge")).toBe(true)
+  })
+
+  test("renders active flowchart edge glimmer separately from global pulses", () => {
+    const output = renderFlowchartDiagramAnsi(
+      `
+flowchart LR
+  A[A] --> B[B]
+`,
+      {
+        activeNode: "A",
+        activeEdge: { from: "A", to: "B" },
+        pulseFrame: 0,
+        pulseLength: 5,
+        theme: {
+          activeEdge: "[active-edge]",
+          activeEdgePulse: "[active-pulse]",
+          activeEdgePulseFade1: "[active-pulse-fade-1]",
+          activeEdgePulseFade2: "[active-pulse-fade-2]",
+          activeEdgePulseFade3: "[active-pulse-fade-3]",
+          activeEdgePulseFade4: "[active-pulse-fade-4]",
+          activeEdgePulseFade5: "[active-pulse-fade-5]",
+          edgePulse: "[global-pulse]",
+        },
+      },
+    )
+
+    expect(output).toContain("[active-pulse-fade-1]")
+    expect(output).not.toContain("[global-pulse]")
+  })
+
+  test("renders active flowchart edge progress as a glimmering trail", () => {
+    const output = renderFlowchartDiagramAnsi(
+      `
+flowchart LR
+  A[A] --> B[B]
+`,
+      {
+        activeNode: "A",
+        activeEdge: { from: "A", to: "B" },
+        activeEdgeProgress: 0.5,
+        theme: {
+          activeEdge: "[active-edge]",
+          activeEdgePulse: "[active-pulse]",
+          activeEdgePulseFade1: "[active-pulse-fade-1]",
+          activeEdgePulseFade2: "[active-pulse-fade-2]",
+          activeEdgePulseFade3: "[active-pulse-fade-3]",
+          activeEdgePulseFade4: "[active-pulse-fade-4]",
+          activeEdgePulseFade5: "[active-pulse-fade-5]",
+        },
+      },
+    )
+
+    expect(output).toContain("[active-pulse-fade-")
+  })
+
   test("applies flowchart node foreground and background color maps", () => {
     const grid = renderFlowchartGrid("flowchart LR\n  A[Alpha] --> B[Beta]")
     const fg = parseColor("#ff0000")

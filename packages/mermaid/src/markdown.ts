@@ -17,6 +17,10 @@ import { detectMermaidDiagram } from "./detect.js"
 import { drawFlowchartDiagramGrid } from "./flowchart/drawing.js"
 import { parseMermaidFlowchartDiagram } from "./flowchart/parser.js"
 import { renderGridStyledText, resolveFlowchartStyleColors } from "./flowchart/style.js"
+import { drawGitGraphDiagramGrid } from "./gitgraph/drawing.js"
+import { parseMermaidGitGraphDiagram } from "./gitgraph/parser.js"
+import { renderGitGraphGridStyledText } from "./gitgraph/render-grid.js"
+import { resolveGitGraphStyleColors } from "./gitgraph/style.js"
 import { drawSequenceDiagramGrid } from "./sequence/drawing.js"
 import { parseMermaidSequenceDiagram } from "./sequence/parser.js"
 import { renderSequenceGridStyledText } from "./sequence/render-grid.js"
@@ -164,6 +168,25 @@ function prepareDiagram(
           }),
         ),
         grid.getTextHeight({ trimTop: true, trimBottom: true }),
+      )
+    }
+    case "gitGraph": {
+      const grid = drawGitGraphDiagramGrid(parseMermaidGitGraphDiagram(source))
+      return preparedDiagram(
+        kind,
+        source,
+        options.key,
+        renderGitGraphGridStyledText(
+          grid,
+          resolveGitGraphStyleColors({
+            primary: colors.primary,
+            secondary: colors.secondary,
+            muted: colors.muted,
+            warning: colors.warning,
+            text: colors.text,
+          }),
+        ),
+        grid.getTextHeight({ trimBottom: true }),
       )
     }
     case "sequence": {

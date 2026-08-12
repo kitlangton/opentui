@@ -53,10 +53,12 @@ try {
     `import {
   detectMermaidDiagram,
   renderFlowchartDiagram,
+  renderGitGraphDiagram,
   renderSequenceDiagram,
   renderStateDiagram,
   renderTimelineDiagram,
   type FlowchartDiagram,
+  type GitGraphDiagram,
   type SequenceDiagram,
   type StateDiagram,
   type TimelineDiagram,
@@ -64,6 +66,7 @@ try {
 
 const sources = [
   ["flowchart", "flowchart LR\\n  A --> B", renderFlowchartDiagram],
+  ["gitGraph", "gitGraph\\n  commit id: shipped", renderGitGraphDiagram],
   ["sequence", "sequenceDiagram\\n  A->>B: hello", renderSequenceDiagram],
   ["state", "stateDiagram-v2\\n  A --> B", renderStateDiagram],
   ["timeline", "timeline\\n  2026 : shipped", renderTimelineDiagram],
@@ -74,7 +77,7 @@ for (const [kind, source, render] of sources) {
   if (!render(source).trim()) throw new Error(\`failed to render \${kind}\`)
 }
 
-const typecheck: FlowchartDiagram | SequenceDiagram | StateDiagram | TimelineDiagram | undefined = undefined
+const typecheck: FlowchartDiagram | GitGraphDiagram | SequenceDiagram | StateDiagram | TimelineDiagram | undefined = undefined
 void typecheck
 console.log("@opentui/mermaid dist consumer passed")
 `,

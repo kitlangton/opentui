@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   detectMermaidDiagram,
+  parseMermaidGitGraphDiagram,
   parseMermaidFlowchartDiagram,
   parseMermaidSequenceDiagram,
   parseMermaidStateDiagram,
   parseMermaidTimelineDiagram,
   renderFlowchartDiagram,
+  renderGitGraphDiagram,
   renderSequenceDiagram,
   renderStateDiagram,
   renderTimelineDiagram,
@@ -14,6 +16,12 @@ import {
 describe("public API", () => {
   test("detects, parses, and renders each supported diagram family", () => {
     const fixtures = [
+      {
+        source: 'gitGraph\n  commit id: "initial"',
+        kind: "gitGraph",
+        parse: parseMermaidGitGraphDiagram,
+        render: renderGitGraphDiagram,
+      },
       {
         source: "flowchart LR\n  Parse --> Render",
         kind: "flowchart",

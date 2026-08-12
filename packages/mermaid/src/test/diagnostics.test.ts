@@ -5,6 +5,7 @@ import { parseMermaidSequenceDiagram } from "../sequence/parser.js"
 import { parseMermaidStateDiagram } from "../state/parser.js"
 import { renderSequenceDiagram } from "../sequence/diagram.js"
 import { renderTimelineDiagram } from "../timeline/diagram.js"
+import { renderGitGraphDiagram } from "../gitgraph/diagram.js"
 
 describe("parser diagnostics", () => {
   test("ignores flowchart presentation directives that do not change terminal structure", () => {
@@ -108,6 +109,12 @@ describe("parser diagnostics", () => {
   test("reports malformed timeline continuations with timeline diagnostics", () => {
     expect(() => renderTimelineDiagram("timeline\n  : orphan event")).toThrow(
       'Timeline continuation requires a preceding period in timeline diagram at line 2: ": orphan event"',
+    )
+  })
+
+  test("reports unsupported GitGraph operations with source diagnostics", () => {
+    expect(() => renderGitGraphDiagram("gitGraph\n  cherry-pick id: missing")).toThrow(
+      'Cherry-pick is not supported in gitGraph diagram at line 2: "cherry-pick id: missing"',
     )
   })
 

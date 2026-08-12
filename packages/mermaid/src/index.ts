@@ -19,6 +19,17 @@ export type {
   FlowchartSubgraph,
 } from "./flowchart/types.js"
 
+export { renderGitGraphDiagram } from "./gitgraph/diagram.js"
+export { isMermaidGitGraphDiagram, parseMermaidGitGraphDiagram } from "./gitgraph/parser.js"
+export type {
+  GitGraphBranch,
+  GitGraphCommit,
+  GitGraphCommitType,
+  GitGraphDiagram,
+  GitGraphDiagramRenderOptions,
+  GitGraphDirection,
+} from "./gitgraph/types.js"
+
 export { renderSequenceDiagram } from "./sequence/diagram.js"
 export { isMermaidSequenceDiagram, parseMermaidSequenceDiagram } from "./sequence/parser.js"
 export type {
